@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#4472C4">
+<title>Tuition Content Tracker</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --header-blue:#4472C4;
+  --header-blue-dark:#2f5597;
+  --fill-green:#C6E0B4;
+  --empty-grey:#F2F2F2;
+  --status-red:#C00000;
+  --status-green:#375623;
+  --status-inprogress:#4472C4;
+  --bg:#FFFFFF;
+  --bg2:#F7F8FA;
+  --border:#D9D9D9;
+  --text:#1F1F1F;
+  --muted:#6B6B6B;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+html,body{background:var(--bg2);color:var(--text);font-family:var(--font);font-size:15px;-webkit-font-smoothing:antialiased;}
+body{padding-bottom:calc(24px + var(--safe-bottom));}
+
+.topbar{background:var(--header-blue);color:#fff;padding:16px;position:sticky;top:0;z-index:10;
+  box-shadow:0 1px 4px rgba(0,0,0,.15);}
+.topbar-inner{max-width:960px;margin:0 auto;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;}
+.topbar h1{font-size:18px;font-weight:700;}
+.topbar-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.student-select{background:#fff;color:var(--text);border:none;border-radius:6px;padding:8px 10px;
+  font-size:14px;font-family:var(--font);cursor:pointer;}
+.refreshed{font-size:12px;color:#e3e9f7;}
+
+.container{max-width:960px;margin:0 auto;padding:16px;}
+
+.card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;}
+.card h2{font-size:15px;font-weight:700;color:var(--header-blue-dark);margin-bottom:10px;}
+
+.state-message{padding:24px;text-align:center;color:var(--muted);}
+.state-message.error{color:var(--status-red);}
+
+.overall-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:600px){.overall-grid{grid-template-columns:1fr;}}
+.stat-label{font-size:12px;color:var(--muted);margin-bottom:4px;}
+.stat-value{font-size:22px;font-weight:700;margin-bottom:8px;}
+
+.bar-track{background:var(--empty-grey);border-radius:6px;height:14px;overflow:hidden;}
+.bar-fill{background:var(--fill-green);height:100%;border-radius:6px 0 0 6px;transition:width .3s ease;}
+.bar-fill.full{border-radius:6px;}
+.bar-na{font-size:13px;color:var(--muted);padding:2px 0;}
+
+.chapters-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+
+.chapter-card .chapter-title{font-size:14px;font-weight:700;color:var(--header-blue-dark);margin-bottom:8px;}
+.chapter-card .chapter-meta{font-size:12px;color:var(--muted);margin-bottom:10px;}
+.chapter-card .bar-row{margin-bottom:10px;}
+.chapter-card .bar-row-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px;}
+
+.subconcepts{display:flex;flex-direction:column;gap:8px;}
+.subrow{border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+  display:grid;grid-template-columns:1.4fr auto auto;gap:8px 14px;align-items:center;}
+@media (max-width:600px){.subrow{grid-template-columns:1fr;}}
+.subrow-main .subrow-chapter{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+.subrow-main .subrow-name{font-size:14px;font-weight:600;}
+.subrow-main .subrow-notes{font-size:12px;color:var(--muted);margin-top:4px;}
+.subrow-main .subrow-date{font-size:12px;color:var(--muted);margin-top:2px;}
+
+.units{display:flex;gap:4px;}
+.unit-block{width:20px;height:20px;border-radius:4px;background:var(--empty-grey);border:1px solid var(--border);}
+.unit-block.filled{background:var(--fill-green);border-color:#9fc37f;}
+
+.status-badge{font-size:12px;font-weight:700;white-space:nowrap;}
+.tested-badge{display:inline-block;margin-left:8px;font-size:10px;font-weight:700;color:var(--header-blue-dark);
+  background:#E4ECF9;border-radius:10px;padding:2px 8px;vertical-align:middle;}
+
+.skeleton{background:linear-gradient(90deg,var(--empty-grey) 25%,#e6e6e6 50%,var(--empty-grey) 75%);
+  background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:8px;height:60px;margin-bottom:10px;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <h1>Tuition Content Tracker</h1>
+    <div class="topbar-controls">
+      <select id="student-select" class="student-select"></select>
+      <span id="refreshed" class="refreshed"></span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div id="content"></div>
+</div>
+
+<script>
+// ── Config: add a new student's { name, sheetId } here ──────────────────────
+const STUDENTS = [
+  { name: "Sample Tutee", sheetId: "1KPBumRLuHjqqvEaUBowK98j2N7N93GylCgmhu73iLtE" },
+];
+
+const TAB_NAME = "Content Tracker";
+const REFRESH_INTERVAL_MS = 60000;
+const LAST_STUDENT_KEY = "tracker.lastStudentSheetId";
+
+// ── Pure logic functions (mirrored in tests/test_logic.js — keep in sync) ──
+
+function parseGvizResponse(text) {
+  const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
+  if (!match) throw new Error("Unexpected gviz response format");
+  const json = JSON.parse(match[1]);
+  if (json.status === "error") {
+    const msg = (json.errors && json.errors[0] && json.errors[0].detailed_message) || "gviz query error";
+    throw new Error(msg);
+  }
+  return json.table.rows.map(function (r) {
+    return r.c.map(function (cell) { return cell ? cell.v : null; });
+  });
+}
+
+function findHeaderRow(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i] && rows[i][0] === "Chapter") return i;
+  }
+  throw new Error('Could not find header row (expected first column "Chapter")');
+}
+
+function mapRowsByHeader(rows, headerRowIndex) {
+  const headers = rows[headerRowIndex].map(function (h) {
+    return h == null ? "" : String(h).trim();
+  });
+  const dataRows = rows.slice(headerRowIndex + 1);
+  return dataRows
+    .filter(function (row) { return row && row[0]; })
+    .map(function (row) {
+      const obj = {};
+      headers.forEach(function (h, i) {
+        if (h) obj[h] = row[i] == null ? "" : row[i];
+      });
+      return obj;
+    });
+}
+
+function clampProgress(value) {
+  const p = Number(value);
+  return Number.isFinite(p) ? Math.max(0, Math.min(3, Math.round(p))) : 0;
+}
+
+const STATUS_BY_PROGRESS = {
+  0: { label: "Not Started", color: "var(--status-red)" },
+  1: { label: "Started", color: "var(--status-inprogress)" },
+  2: { label: "Halfway", color: "var(--status-inprogress)" },
+  3: { label: "Completed", color: "var(--status-green)" },
+};
+
+function deriveRowState(progress) {
+  const clamped = clampProgress(progress);
+  const status = STATUS_BY_PROGRESS[clamped];
+  return {
+    unit1Filled: clamped >= 1,
+    unit2Filled: clamped >= 2,
+    unit3Filled: clamped >= 3,
+    statusLabel: status.label,
+    statusColor: status.color,
+  };
+}
+
+function isTested(row) {
+  return String(row["Tested for Assessment?"] || "").trim().toLowerCase() === "yes";
+}
+
+function summarize(rows) {
+  const subConceptCount = rows.length;
+  const totalUnits = subConceptCount * 3;
+  const unitsAchieved = rows.reduce(function (sum, r) { return sum + clampProgress(r["Progress (0-3)"]); }, 0);
+  const pctAll = totalUnits === 0 ? 0 : unitsAchieved / totalUnits;
+
+  const testedRows = rows.filter(isTested);
+  const testedUnits = testedRows.length * 3;
+  const testedAchieved = testedRows.reduce(function (sum, r) { return sum + clampProgress(r["Progress (0-3)"]); }, 0);
+  const pctAssessment = testedUnits === 0 ? null : testedAchieved / testedUnits;
+
+  return { subConceptCount, totalUnits, unitsAchieved, pctAll, testedUnits, testedAchieved, pctAssessment };
+}
+
+function computeChapterSummary(rows) {
+  const chapters = [];
+  const byChapter = new Map();
+  rows.forEach(function (row) {
+    const chapter = row["Chapter"];
+    if (!chapter) return;
+    if (!byChapter.has(chapter)) {
+      byChapter.set(chapter, []);
+      chapters.push(chapter);
+    }
+    byChapter.get(chapter).push(row);
+  });
+
+  return chapters.map(function (chapter) {
+    const chapterRows = byChapter.get(chapter);
+    return Object.assign({ chapter: chapter }, summarize(chapterRows));
+  });
+}
+
+function computeOverallSummary(rows) {
+  return summarize(rows);
+}
+
+async function fetchSheetAsJson(sheetId, tabName) {
+  const url = "https://docs.google.com/spreadsheets/d/" + sheetId +
+    "/gviz/tq?tqx=out:json&headers=0&sheet=" + encodeURIComponent(tabName);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Sheet fetch failed (HTTP " + res.status + ")");
+  const text = await res.text();
+  return parseGvizResponse(text);
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+
+function esc(str) {
+  return String(str == null ? "" : str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function pctText(pct) {
+  return pct === null ? "N/A" : (pct * 100).toFixed(1) + "%";
+}
+
+function renderBar(pct) {
+  if (pct === null) return '<div class="bar-na">N/A — no assessed sub-concepts</div>';
+  const width = Math.max(0, Math.min(100, pct * 100));
+  return '<div class="bar-track"><div class="bar-fill' + (width >= 100 ? " full" : "") +
+    '" style="width:' + width + '%"></div></div>';
+}
+
+function renderOverallSummary(rows) {
+  const s = computeOverallSummary(rows);
+  return (
+    '<div class="card">' +
+      "<h2>Overall Progress</h2>" +
+      '<div class="overall-grid">' +
+        '<div><div class="stat-label">% Complete (All) — ' + s.unitsAchieved + " / " + s.totalUnits + ' units</div>' +
+          '<div class="stat-value">' + pctText(s.pctAll) + "</div>" + renderBar(s.pctAll) + "</div>" +
+        '<div><div class="stat-label">% Complete (Assessment) — ' + s.testedAchieved + " / " + s.testedUnits + ' units</div>' +
+          '<div class="stat-value">' + pctText(s.pctAssessment) + "</div>" + renderBar(s.pctAssessment) + "</div>" +
+      "</div>" +
+    "</div>"
+  );
+}
+
+function renderChapterCard(summary) {
+  return (
+    '<div class="card chapter-card">' +
+      '<div class="chapter-title">' + esc(summary.chapter) + "</div>" +
+      '<div class="chapter-meta">' + summary.subConceptCount + " sub-concept" + (summary.subConceptCount === 1 ? "" : "s") + "</div>" +
+      '<div class="bar-row"><div class="bar-row-label"><span>% Complete (All)</span><span>' + pctText(summary.pctAll) + "</span></div>" + renderBar(summary.pctAll) + "</div>" +
+      '<div class="bar-row"><div class="bar-row-label"><span>% Complete (Assessment)</span><span>' + pctText(summary.pctAssessment) + "</span></div>" + renderBar(summary.pctAssessment) + "</div>" +
+    "</div>"
+  );
+}
+
+function renderSubConceptRow(row) {
+  const state = deriveRowState(row["Progress (0-3)"]);
+  const tested = isTested(row)
+    ? '<span class="tested-badge">TESTED</span>'
+    : "";
+  return (
+    '<div class="subrow">' +
+      '<div class="subrow-main">' +
+        '<div class="subrow-chapter">' + esc(row["Chapter"]) + "</div>" +
+        '<div class="subrow-name">' + esc(row["Sub-Concept"]) + tested + "</div>" +
+        (row["Date Taught"] ? '<div class="subrow-date">Taught: ' + esc(row["Date Taught"]) + "</div>" : "") +
+        (row["Notes"] ? '<div class="subrow-notes">' + esc(row["Notes"]) + "</div>" : "") +
+      "</div>" +
+      '<div class="units">' +
+        '<div class="unit-block' + (state.unit1Filled ? " filled" : "") + '"></div>' +
+        '<div class="unit-block' + (state.unit2Filled ? " filled" : "") + '"></div>' +
+        '<div class="unit-block' + (state.unit3Filled ? " filled" : "") + '"></div>' +
+      "</div>" +
+      '<div class="status-badge" style="color:' + state.statusColor + '">' + state.statusLabel + "</div>" +
+    "</div>"
+  );
+}
+
+function renderPage(rows) {
+  const chapterSummaries = computeChapterSummary(rows);
+  const chapterCards = chapterSummaries.map(renderChapterCard).join("");
+  const subRows = rows.map(renderSubConceptRow).join("");
+
+  return (
+    renderOverallSummary(rows) +
+    '<div class="card"><h2>Chapters</h2><div class="chapters-grid">' + chapterCards + "</div></div>" +
+    '<div class="card"><h2>All Sub-Concepts</h2><div class="subconcepts">' + subRows + "</div></div>"
+  );
+}
+
+function renderSkeleton() {
+  return (
+    '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>'
+  );
+}
+
+function renderError(message) {
+  return '<div class="state-message error">Couldn’t load this student’s tracker: ' + esc(message) + "</div>";
+}
+
+// ── Wiring ────────────────────────────────────────────────────────────────────
+
+const contentEl = document.getElementById("content");
+const selectEl = document.getElementById("student-select");
+const refreshedEl = document.getElementById("refreshed");
+let currentStudent = null;
+let refreshTimer = null;
+
+function populateStudentSelect() {
+  selectEl.innerHTML = STUDENTS.map(function (s) {
+    return '<option value="' + esc(s.sheetId) + '">' + esc(s.name) + "</option>";
+  }).join("");
+
+  const savedSheetId = localStorage.getItem(LAST_STUDENT_KEY);
+  const match = STUDENTS.find(function (s) { return s.sheetId === savedSheetId; });
+  selectEl.value = (match || STUDENTS[0]).sheetId;
+}
+
+async function loadStudent(sheetId) {
+  const student = STUDENTS.find(function (s) { return s.sheetId === sheetId; }) || STUDENTS[0];
+  currentStudent = student;
+  localStorage.setItem(LAST_STUDENT_KEY, student.sheetId);
+  contentEl.innerHTML = renderSkeleton();
+
+  try {
+    const rows = await fetchSheetAsJson(student.sheetId, TAB_NAME);
+    const headerRowIndex = findHeaderRow(rows);
+    const mapped = mapRowsByHeader(rows, headerRowIndex);
+    contentEl.innerHTML = renderPage(mapped);
+    refreshedEl.textContent = "Data refreshed at " + new Date().toLocaleTimeString();
+  } catch (err) {
+    contentEl.innerHTML = renderError(student.name + ": " + err.message);
+    refreshedEl.textContent = "Last refresh failed at " + new Date().toLocaleTimeString();
+  }
+}
+
+function scheduleRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(function () {
+    if (currentStudent) loadStudent(currentStudent.sheetId);
+  }, REFRESH_INTERVAL_MS);
+}
+
+selectEl.addEventListener("change", function () {
+  loadStudent(selectEl.value);
+});
+
+document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState === "visible" && currentStudent) {
+    loadStudent(currentStudent.sheetId);
+  }
+});
+
+populateStudentSelect();
+loadStudent(selectEl.value);
+scheduleRefresh();
+</script>
+</body>
+</html>
