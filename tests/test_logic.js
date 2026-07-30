@@ -11,40 +11,54 @@ function assert(label, condition) {
 
 // ── Pure functions copied from index.html ───────────────────────────────────
 
-function parseGvizResponse(text) {
-  const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
-  if (!match) throw new Error('Unexpected gviz response format');
-  const json = JSON.parse(match[1]);
-  if (json.status === 'error') {
-    const msg = (json.errors && json.errors[0] && json.errors[0].detailed_message) || 'gviz query error';
-    throw new Error(msg);
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\r') {
+      // ignore, paired \n below ends the row
+    } else if (c === '\n') {
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else {
+      field += c;
+    }
   }
-  return json.table.rows.map(function (r) {
-    return r.c.map(function (cell) { return cell ? cell.v : null; });
-  });
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
 }
 
-function findHeaderRow(rows) {
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i] && rows[i][0] === 'Chapter') return i;
-  }
-  throw new Error('Could not find header row (expected first column "Chapter")');
-}
+const COLUMNS = { CHAPTER: 0, SUB_CONCEPT: 1, PROGRESS: 2, DATE_TAUGHT: 7, NOTES: 8, TESTED: 9 };
 
-function mapRowsByHeader(rows, headerRowIndex) {
-  const headers = rows[headerRowIndex].map(function (h) {
-    return h == null ? '' : String(h).trim();
+function mapCsvRows(rows) {
+  const dataRows = rows.slice(1).filter(function (row) { return row && row[COLUMNS.CHAPTER]; });
+  if (dataRows.length === 0) {
+    throw new Error('No data rows found — check the Content Tracker tab layout');
+  }
+  return dataRows.map(function (row) {
+    return {
+      'Chapter': row[COLUMNS.CHAPTER] || '',
+      'Sub-Concept': row[COLUMNS.SUB_CONCEPT] || '',
+      'Progress (0-3)': row[COLUMNS.PROGRESS] || '',
+      'Date Taught': row[COLUMNS.DATE_TAUGHT] || '',
+      'Notes': row[COLUMNS.NOTES] || '',
+      'Tested for Assessment?': row[COLUMNS.TESTED] || '',
+    };
   });
-  const dataRows = rows.slice(headerRowIndex + 1);
-  return dataRows
-    .filter(function (row) { return row && row[0]; })
-    .map(function (row) {
-      const obj = {};
-      headers.forEach(function (h, i) {
-        if (h) obj[h] = row[i] == null ? '' : row[i];
-      });
-      return obj;
-    });
 }
 
 function clampProgress(value) {
@@ -118,23 +132,13 @@ function pct1(pct) {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-// Raw gviz JSONP response (captured shape) wrapping banner rows + header row + 2 data rows.
-const GVIZ_SAMPLE_TEXT =
-  '/*O_o*/\ngoogle.visualization.Query.setResponse(' + JSON.stringify({
-    status: 'ok',
-    table: {
-      cols: [],
-      rows: [
-        { c: [{ v: '[merged] P5 Standard Mathematics — Content Coverage Tracker' }] },
-        { c: [{ v: 'Tutee Name:' }, null, null, { v: 'Last Updated:' }] },
-        { c: [{ v: 'How to use:' }, { v: 'Progress: type 0-3...' }] },
-        { c: [null] },
-        { c: [{ v: 'Chapter' }, { v: 'Sub-Concept' }, { v: 'Progress (0-3)' }, { v: 'Unit 1' }, { v: 'Unit 2' }, { v: 'Unit 3' }, { v: 'Status' }, { v: 'Date Taught' }, { v: 'Notes' }, { v: 'Tested for Assessment?' }] },
-        { c: [{ v: 'Chapter 1: Numbers to 10 million' }, { v: 'Reading and writing numbers in numerals and in words' }, { v: 3 }, null, null, null, { v: 'Completed' }, null, null, { v: 'Yes' }] },
-        { c: [{ v: 'Chapter 2: Four Operations of Whole Numbers' }, { v: 'Multiplying and dividing whole numbers by 10, 100 and 1000' }, { v: 3 }, null, null, null, { v: 'Completed' }, null, null, { v: 'Yes' }] },
-      ],
-    },
-  }) + ');';
+// Captured shape of the real gviz CSV response: merged banner/title rows above
+// the real header collapse into a single (garbled) row 0, then clean data rows.
+const CSV_SAMPLE_TEXT =
+  '"P5 Standard Mathematics — Content Coverage Tracker Tutee Name: How to use: Chapter","Progress: type 0-3... Sub-Concept","Progress (0-3)","Last Updated: Unit 1","Unit 2","Unit 3","Status","Date Taught","Notes","Tested for Assessment?"\n' +
+  '"Chapter 1: Numbers to 10 million","Reading and writing numbers in numerals and in words","3","","","","Completed","","","Yes"\n' +
+  '"Chapter 2: Four Operations of Whole Numbers","Multiplying and dividing whole numbers by 10, 100 and 1000","3","","","","Completed","","","Yes"\n' +
+  '"Chapter 4: Four Operations of Fractions","Multiplying fractions","2","","","","Halfway","","Outstanding: How to interpret ""fraction of"" in short-answer types","Yes"\n';
 
 // Full 30-row dataset matching the real sample sheet, used to cross-check against its
 // existing Summary-tab numbers (verified via the Google Drive read of the live sheet).
@@ -172,8 +176,10 @@ const SAMPLE_ROWS_RAW = [
 ];
 
 function buildSampleRows() {
+  // Progress is stringified — CSV cells are always strings in production, and
+  // clampProgress()/Number() must handle that (not just numeric literals).
   return SAMPLE_ROWS_RAW.map(function (r) {
-    return { 'Chapter': r[0], 'Sub-Concept': r[1], 'Progress (0-3)': r[2], 'Notes': r[3], 'Tested for Assessment?': r[4] };
+    return { 'Chapter': r[0], 'Sub-Concept': r[1], 'Progress (0-3)': String(r[2]), 'Notes': r[3], 'Tested for Assessment?': r[4] };
   });
 }
 
@@ -181,39 +187,26 @@ function buildSampleRows() {
 
 console.log('\nTracker Logic Tests\n');
 
-console.log('parseGvizResponse():');
-const parsedRows = parseGvizResponse(GVIZ_SAMPLE_TEXT);
-assert('strips JSONP wrapper and parses rows', Array.isArray(parsedRows));
-assert('includes banner rows unfiltered', parsedRows.length === 7);
-assert('header row content intact', parsedRows[4][0] === 'Chapter');
-assert('data row content intact', parsedRows[5][0] === 'Chapter 1: Numbers to 10 million');
+console.log('parseCsv():');
+const parsedRows = parseCsv(CSV_SAMPLE_TEXT);
+assert('parses correct number of rows (1 garbled header + 3 data)', parsedRows.length === 4);
+assert('splits quoted fields with embedded commas correctly', parsedRows[2][1] === 'Multiplying and dividing whole numbers by 10, 100 and 1000');
+assert('unescapes doubled quotes ("" -> ")', parsedRows[3][8] === 'Outstanding: How to interpret "fraction of" in short-answer types');
+assert('row 0 is the garbled banner+header row, not data', parsedRows[0][0] !== 'Chapter 1: Numbers to 10 million');
 
-const errorText = '/*O_o*/\ngoogle.visualization.Query.setResponse(' + JSON.stringify({
-  status: 'error', errors: [{ detailed_message: 'Invalid sheet name' }],
-}) + ');';
-console.log('\nparseGvizResponse() error handling:');
+console.log('\nmapCsvRows():');
+const mapped = mapCsvRows(parsedRows);
+assert('skips row 0 (garbled banner+header)', mapped.length === 3);
+assert('maps Chapter by position', mapped[0]['Chapter'] === 'Chapter 1: Numbers to 10 million');
+assert('maps Progress by position', mapped[0]['Progress (0-3)'] === '3');
+assert('maps Tested column despite blank Unit 1-3 columns in between', mapped[0]['Tested for Assessment?'] === 'Yes');
+assert('preserves unescaped quotes in Notes', mapped[2]['Notes'] === 'Outstanding: How to interpret "fraction of" in short-answer types');
 try {
-  parseGvizResponse(errorText);
-  assert('throws on gviz error status', false);
+  mapCsvRows([['garbled header only, no data']]);
+  assert('throws when no data rows found', false);
 } catch (e) {
-  assert('throws on gviz error status', e.message === 'Invalid sheet name');
+  assert('throws when no data rows found', /No data rows found/.test(e.message));
 }
-
-console.log('\nfindHeaderRow():');
-assert('finds header row past banner rows', findHeaderRow(parsedRows) === 4);
-try {
-  findHeaderRow([['not a header'], ['still not']]);
-  assert('throws when no header row found', false);
-} catch (e) {
-  assert('throws when no header row found', /Could not find header row/.test(e.message));
-}
-
-console.log('\nmapRowsByHeader():');
-const mapped = mapRowsByHeader(parsedRows, 4);
-assert('maps correct number of data rows', mapped.length === 2);
-assert('maps by header name', mapped[0]['Chapter'] === 'Chapter 1: Numbers to 10 million');
-assert('maps Progress column', mapped[0]['Progress (0-3)'] === 3);
-assert('blank Unit columns do not break mapping', mapped[0]['Tested for Assessment?'] === 'Yes');
 
 console.log('\nderiveRowState():');
 assert('0 → Not Started, no units filled', deriveRowState(0).statusLabel === 'Not Started' && !deriveRowState(0).unit1Filled);

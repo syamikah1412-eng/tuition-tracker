@@ -111,40 +111,63 @@ const LAST_STUDENT_KEY = "tracker.lastStudentSheetId";
 
 // ── Pure logic functions (mirrored in tests/test_logic.js — keep in sync) ──
 
-function parseGvizResponse(text) {
-  const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
-  if (!match) throw new Error("Unexpected gviz response format");
-  const json = JSON.parse(match[1]);
-  if (json.status === "error") {
-    const msg = (json.errors && json.errors[0] && json.errors[0].detailed_message) || "gviz query error";
-    throw new Error(msg);
+// Parses a gviz CSV response into an array of arrays of strings.
+// (The gviz JSON endpoint infers a type per column from the data and then fails
+// to coerce the header row's own text into that type — e.g. "Progress (0-3)"
+// gets nulled out because that column is inferred as numeric. CSV sidesteps
+// that entirely: every cell comes back as plain text.)
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field); field = "";
+    } else if (c === "\r") {
+      // ignore, paired \n below ends the row
+    } else if (c === "\n") {
+      row.push(field); field = "";
+      rows.push(row); row = [];
+    } else {
+      field += c;
+    }
   }
-  return json.table.rows.map(function (r) {
-    return r.c.map(function (cell) { return cell ? cell.v : null; });
-  });
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
 }
 
-function findHeaderRow(rows) {
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i] && rows[i][0] === "Chapter") return i;
-  }
-  throw new Error('Could not find header row (expected first column "Chapter")');
-}
+// Column positions in the Content Tracker tab (per §6 of the build-plan doc).
+// CSV export collapses every merged banner/title row above the real header
+// into a single row 0 (and garbles that row's own text in the process), so
+// rows are read by fixed position rather than by header name.
+const COLUMNS = { CHAPTER: 0, SUB_CONCEPT: 1, PROGRESS: 2, DATE_TAUGHT: 7, NOTES: 8, TESTED: 9 };
 
-function mapRowsByHeader(rows, headerRowIndex) {
-  const headers = rows[headerRowIndex].map(function (h) {
-    return h == null ? "" : String(h).trim();
+function mapCsvRows(rows) {
+  const dataRows = rows.slice(1).filter(function (row) { return row && row[COLUMNS.CHAPTER]; });
+  if (dataRows.length === 0) {
+    throw new Error("No data rows found — check the Content Tracker tab layout");
+  }
+  return dataRows.map(function (row) {
+    return {
+      "Chapter": row[COLUMNS.CHAPTER] || "",
+      "Sub-Concept": row[COLUMNS.SUB_CONCEPT] || "",
+      "Progress (0-3)": row[COLUMNS.PROGRESS] || "",
+      "Date Taught": row[COLUMNS.DATE_TAUGHT] || "",
+      "Notes": row[COLUMNS.NOTES] || "",
+      "Tested for Assessment?": row[COLUMNS.TESTED] || "",
+    };
   });
-  const dataRows = rows.slice(headerRowIndex + 1);
-  return dataRows
-    .filter(function (row) { return row && row[0]; })
-    .map(function (row) {
-      const obj = {};
-      headers.forEach(function (h, i) {
-        if (h) obj[h] = row[i] == null ? "" : row[i];
-      });
-      return obj;
-    });
 }
 
 function clampProgress(value) {
@@ -212,13 +235,13 @@ function computeOverallSummary(rows) {
   return summarize(rows);
 }
 
-async function fetchSheetAsJson(sheetId, tabName) {
+async function fetchSheetAsCsv(sheetId, tabName) {
   const url = "https://docs.google.com/spreadsheets/d/" + sheetId +
-    "/gviz/tq?tqx=out:json&headers=0&sheet=" + encodeURIComponent(tabName);
+    "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(tabName);
   const res = await fetch(url);
   if (!res.ok) throw new Error("Sheet fetch failed (HTTP " + res.status + ")");
   const text = await res.text();
-  return parseGvizResponse(text);
+  return parseCsv(text);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -335,9 +358,8 @@ async function loadStudent(sheetId) {
   contentEl.innerHTML = renderSkeleton();
 
   try {
-    const rows = await fetchSheetAsJson(student.sheetId, TAB_NAME);
-    const headerRowIndex = findHeaderRow(rows);
-    const mapped = mapRowsByHeader(rows, headerRowIndex);
+    const rows = await fetchSheetAsCsv(student.sheetId, TAB_NAME);
+    const mapped = mapCsvRows(rows);
     contentEl.innerHTML = renderPage(mapped);
     refreshedEl.textContent = "Data refreshed at " + new Date().toLocaleTimeString();
   } catch (err) {
