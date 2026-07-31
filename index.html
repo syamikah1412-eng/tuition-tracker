@@ -36,6 +36,26 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
   font-size:14px;font-family:var(--font);cursor:pointer;}
 .refreshed{font-size:12px;color:#e3e9f7;}
 
+.auth-btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);
+  border-radius:6px;padding:8px 10px;font-size:13px;font-family:var(--font);cursor:pointer;
+  display:flex;align-items:center;gap:6px;}
+.auth-btn.unlocked{background:#375623;border-color:#375623;}
+
+.auth-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;
+  align-items:center;justify-content:center;z-index:100;padding:16px;}
+.auth-modal-backdrop.open{display:flex;}
+.auth-modal{background:var(--bg);border-radius:10px;padding:20px;max-width:320px;width:100%;}
+.auth-modal h2{font-size:15px;margin-bottom:12px;}
+.auth-modal input{width:100%;padding:10px;font-size:14px;border:1px solid var(--border);
+  border-radius:6px;margin-bottom:10px;font-family:var(--font);}
+.auth-modal-actions{display:flex;gap:8px;justify-content:flex-end;}
+.auth-modal-actions button{padding:8px 14px;font-size:14px;border-radius:6px;border:none;
+  cursor:pointer;font-family:var(--font);}
+.auth-btn-cancel{background:var(--empty-grey);color:var(--text);}
+.auth-btn-submit{background:var(--header-blue);color:#fff;}
+.auth-btn-submit:disabled{opacity:.6;cursor:default;}
+.auth-error{color:var(--status-red);font-size:12px;min-height:16px;margin-bottom:6px;}
+
 .container{max-width:960px;margin:0 auto;padding:16px;}
 
 .card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;}
@@ -91,12 +111,25 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
     <div class="topbar-controls">
       <select id="student-select" class="student-select"></select>
       <span id="refreshed" class="refreshed"></span>
+      <button id="auth-btn" class="auth-btn" onclick="onAuthBtnClick()">🔒 Atikah login</button>
     </div>
   </div>
 </div>
 
 <div class="container">
   <div id="content"></div>
+</div>
+
+<div class="auth-modal-backdrop" id="auth-modal-backdrop" onclick="closeAuthModalIfBackdrop(event)">
+  <div class="auth-modal">
+    <h2>Atikah login</h2>
+    <div class="auth-error" id="auth-error"></div>
+    <input id="auth-pw-input" type="password" placeholder="Password" autocomplete="current-password">
+    <div class="auth-modal-actions">
+      <button class="auth-btn-cancel" onclick="closeAuthModal()">Cancel</button>
+      <button class="auth-btn-submit" id="auth-submit-btn" onclick="submitPassword()">Unlock</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -110,6 +143,12 @@ const STUDENTS = [
 const TAB_NAME = "Content Tracker";
 const REFRESH_INTERVAL_MS = 60000;
 const LAST_STUDENT_KEY = "tracker.lastStudentSheetId";
+
+// ── Auth config: set APPS_SCRIPT_URL after deploying apps-script.gs ─────────
+const AUTH_CFG = {
+  scriptUrl: "PASTE_APPS_SCRIPT_WEB_APP_URL_HERE",
+  tokenKey: "tracker.authToken",
+};
 
 // ── Pure logic functions (mirrored in tests/test_logic.js — keep in sync) ──
 
@@ -335,6 +374,87 @@ function renderError(message) {
   return '<div class="state-message error">Couldn’t load this student’s tracker: ' + esc(message) + "</div>";
 }
 
+// ── Auth (password gates write features only — viewing stays public) ───────
+
+async function sha256(msg) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(msg));
+  return Array.from(new Uint8Array(buf)).map(function (b) {
+    return b.toString(16).padStart(2, "0");
+  }).join("");
+}
+
+function isAuthed() {
+  return !!localStorage.getItem(AUTH_CFG.tokenKey);
+}
+
+function updateAuthButton() {
+  const btn = document.getElementById("auth-btn");
+  if (isAuthed()) {
+    btn.textContent = "🔓 Atikah (logged in)";
+    btn.classList.add("unlocked");
+  } else {
+    btn.textContent = "🔒 Atikah login";
+    btn.classList.remove("unlocked");
+  }
+}
+
+function onAuthBtnClick() {
+  if (isAuthed()) {
+    if (confirm("Log out?")) {
+      localStorage.removeItem(AUTH_CFG.tokenKey);
+      updateAuthButton();
+    }
+  } else {
+    openAuthModal();
+  }
+}
+
+function openAuthModal() {
+  document.getElementById("auth-error").textContent = "";
+  document.getElementById("auth-pw-input").value = "";
+  document.getElementById("auth-modal-backdrop").classList.add("open");
+  document.getElementById("auth-pw-input").focus();
+}
+
+function closeAuthModal() {
+  document.getElementById("auth-modal-backdrop").classList.remove("open");
+}
+
+function closeAuthModalIfBackdrop(event) {
+  if (event.target.id === "auth-modal-backdrop") closeAuthModal();
+}
+
+async function submitPassword() {
+  const pw = document.getElementById("auth-pw-input").value;
+  const btn = document.getElementById("auth-submit-btn");
+  const err = document.getElementById("auth-error");
+  if (!pw) return;
+  btn.textContent = "…";
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    const token = await sha256(pw);
+    const url = AUTH_CFG.scriptUrl + "?action=auth&token=" + encodeURIComponent(token);
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.ok) {
+      localStorage.setItem(AUTH_CFG.tokenKey, token);
+      updateAuthButton();
+      closeAuthModal();
+    } else {
+      err.textContent = "Wrong password. Try again.";
+    }
+  } catch (e) {
+    err.textContent = "Could not reach server. Check connection.";
+  }
+  btn.textContent = "Unlock";
+  btn.disabled = false;
+}
+
+document.getElementById("auth-pw-input").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") submitPassword();
+});
+
 // ── Wiring ────────────────────────────────────────────────────────────────────
 
 const contentEl = document.getElementById("content");
@@ -390,6 +510,7 @@ document.addEventListener("visibilitychange", function () {
 populateStudentSelect();
 loadStudent(selectEl.value);
 scheduleRefresh();
+updateAuthButton();
 </script>
 </body>
 </html>

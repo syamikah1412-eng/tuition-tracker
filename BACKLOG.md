@@ -2,7 +2,18 @@
 
 Deferred features for the tuition content tracker, recorded 2026-07-31. Not started — this file exists so scope is written down before it's implemented, not to prescribe exact code.
 
-## 1. Password login (simple authentication)
+## 1. Password login (simple authentication) — DONE 2026-07-31
+
+Built: `apps-script.gs` (standalone Web App, auth-only endpoint) + a
+"🔒 Atikah login" control in the top bar (`index.html`), gated by a
+SHA-256 password hash checked server-side, token kept in `localStorage`.
+Viewing remains fully public/no-login, per the design below — the login
+button doesn't unlock anything yet since #2 (the actual write feature) isn't
+built. See README.md § "Atikah login setup" for the one-time manual Apps
+Script deployment step (unavoidable — needs your Google account to click
+through OAuth/deploy, can't be automated). Verified: unit tests in
+`tests/test_apps_script.js` pass, page renders with no console errors
+(headless Chrome dump), auth button starts in locked state.
 
 Currently the page is fully public/read-only with no auth of any kind. Needed as a prerequisite for #2, since that introduces a write path — right now nobody can change data through the page at all, so there's nothing to gate.
 

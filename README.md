@@ -1,17 +1,19 @@
 # Tuition Content Tracker
 
 Read-only, mobile-friendly webpage that mirrors Atikah's tuition content-coverage
-tracker(s). Each student's data lives in their own Google Sheet — the page never
-writes back, so editing always happens in Google Sheets itself (app or browser).
+tracker(s). Viewing is fully public and requires no login. Atikah can optionally
+log in (see "Atikah login setup" below) — logging in doesn't do anything by
+itself yet, it's the foundation for write features (progress increment button,
+etc.) being added on top of this.
 
 ## Architecture
 
 ```
 Google Sheet (one per student, source of truth, edited by Atikah)
-        │  gviz JSON endpoint, public "view" link, no API key
+        │  gviz CSV endpoint, public "view" link, no API key
         ▼
-index.html  (static, no backend, no build step)
-        │
+index.html  (static, no build step)  ──password──▶  apps-script.gs (Web App)
+        │                                              (auth check only, for now)
         ▼
 GitHub Pages
 ```
@@ -50,10 +52,47 @@ python3 -m http.server 8000
 
 ```bash
 node tests/test_logic.js
+node tests/test_apps_script.js
 ```
 
-Tests cover the pure parsing/derivation/summary functions and cross-check the
-sample dataset against the real sample sheet's own Summary-tab numbers.
+`test_logic.js` covers the pure parsing/derivation/summary functions and
+cross-checks the sample dataset against the real sample sheet's own
+Summary-tab numbers. `test_apps_script.js` covers the auth hash/token logic
+mirrored from `apps-script.gs` (the actual Google-service calls in that file
+can only be exercised by deploying it — see below).
+
+## Atikah login setup (one-time, manual — needs your Google account)
+
+The page itself has no server, so the password check lives in a small
+Apps Script Web App. This can't be automated end-to-end because deploying it
+requires clicking through Google's own OAuth/deploy screens under your
+account:
+
+1. Go to [script.google.com](https://script.google.com) → **New project**.
+   (Standalone project — not "attached" to any one sheet, since this same
+   script will later need to write to whichever student's sheet a request
+   names.)
+2. Delete the default `Code.gs` contents and paste in the contents of this
+   repo's `apps-script.gs`.
+3. Pick a password, then compute its hash: in the Apps Script editor, select
+   the `rehash` function from the function dropdown and click **Run** (first
+   run will prompt you to authorize the script — that's expected, it's your
+   own script). Open **View → Logs** (or **Executions**) and copy the 64-character
+   hex string that was logged — edit the password in the `rehash()` function
+   first if you don't want to use the placeholder `'your-new-password'`.
+4. **Project Settings** (gear icon, left sidebar) → **Script Properties** →
+   **Add script property** → key `PASSWORD_HASH`, value = the hash from step 3.
+5. **Deploy → New deployment → Web app.** Set "Execute as" to **Me** and
+   "Who has access" to **Anyone**. Click Deploy, authorize again if prompted,
+   then copy the Web app URL it gives you (ends in `/exec`).
+6. In `index.html`, find `AUTH_CFG` near the top of the `<script>` block and
+   paste that URL as `scriptUrl`.
+7. Push/redeploy the site. Click "🔒 Atikah login" in the top bar and enter
+   the password from step 3 to confirm it works — it should switch to
+   "🔓 Atikah (logged in)".
+
+If you ever need to change the password, repeat steps 3–4 with a new hash —
+no redeploy of the Web app needed, script properties update live.
 
 ## Deploying (GitHub Pages)
 
@@ -62,7 +101,9 @@ sample dataset against the real sample sheet's own Summary-tab numbers.
 3. Share the resulting `https://<user>.github.io/<repo>/` URL.
 
 Nothing sensitive is exposed in the public source beyond each student's
-view-only Sheet ID — there is no write path, password, or API key in this app.
+view-only Sheet ID and the Apps Script Web App URL (the URL alone grants
+nothing — it always checks the password hash before treating a request as
+Atikah).
 
 ## Notes
 
