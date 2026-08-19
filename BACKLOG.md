@@ -38,7 +38,9 @@ Button **at the sub-concept level** (inside the expanded chapter view — see #4
 - Tooltip must be an *enhancement*, not the only way to reach the info — the latest date should already be visible as plain text, per the interaction pattern in the UI/UX audit below.
 - Depends on #2's data model (can't show increment history that isn't being recorded yet).
 
-## 4. Chapter accordion + sticky quick-nav dropdown
+## 4. Chapter accordion + sticky quick-nav dropdown — DONE 2026-08-19
+
+Built: chapters merged into one accordion (`renderChapterCard`/`renderPage` in `index.html`), multiple chapters can be open independently, open state persists across the 60s auto-refresh (`openChapters` Set, cleared only on student switch), and a "Jump to chapter…" `<select>` in the top bar scrolls-to-and-expands. Lives inside `.topbar-controls` rather than as a third sticky bar, per the open question below. Verified: 117 `tests/test_logic.js` assertions pass; live-browser check (local server + Chrome) confirmed expand/collapse, quick-nav scroll+expand, and state surviving a simulated refresh and a real student switch.
 
 Restructures the page layout: the current two separate sections ("Chapters" summary cards, then a completely separate flat "All Sub-Concepts" list of all 30 rows) merge into one. A chapter row shows its summary (the existing % Complete bars) collapsed by default; **clicking the chapter header expands it in place** to reveal that chapter's own sub-concept rows — which is where the increment button from #2 lives.
 
@@ -63,6 +65,36 @@ Some students Atikah tutors span **two levels of the syllabus** (e.g. P5 and P6 
 - **Fetching**: one gviz CSV fetch per level-tab, done in parallel — a 4-level workbook does 4 fetches instead of 1 on load. Still small/fast given sheet size, but worth noting as a real change from today's single-fetch model.
 - Interacts directly with #4: the chapter accordion and quick-nav dropdown both need a level dimension once a student can have more than one — e.g. chapters grouped/labeled by level in the dropdown, or a level switcher above the chapter list (parallel to today's student switcher).
 - Tab-naming convention needs to be consistent across a workbook (e.g. exact tab names like `"P5 Content Tracker"` / `"P6 Content Tracker"`) so the `tabName` values in config match exactly — same fragility as the existing single-tab `TAB_NAME` constant, just multiplied by up to 4 per student.
+
+## 6. Drill-down to matching worksheets — DONE 2026-08-19
+
+Built: click a chapter to reveal its sub-concepts (per #4's accordion); a sub-concept (or, for the two unmatched decimals worksheets, the chapter itself) with matching worksheets shows each one as a small link (`renderWorksheetLinks` in `index.html`) that opens the PDF in the browser's own viewer in a new tab — changed from the originally-planned forced `download` attribute per a mid-build decision (browser preview is better for a quick glance mid-lesson; the browser's own viewer still lets the file be saved if needed). A sub-concept/chapter with no match shows nothing extra. 29 worksheet-only PDFs (answer keys excluded) synced into `tracker/worksheets/` via the new `sync_worksheets.sh`. Verified: 9 new `tests/test_logic.js` assertions for the lookup functions pass; live-browser check confirmed links render only where mapped, a link opens the correct PDF in Chrome's native viewer, and multi-set worksheets show every Set.
+
+Click a chapter to reveal its sub-concepts (per #4's accordion); clicking a sub-concept that has matching worksheets shows the list of them. A sub-concept with no matching worksheet shows nothing extra (no dead-end UI).
+
+**Confirmed there's real overlap to build against** — cross-checked all three of Dani's trackers (P5/P4/P3) against the worksheet generator's databank ([[atikah-worksheet-generator-project]], `~/Documents/claude-workspace/projects/atikah-tuition/worksheets/`) and found matches in every level, several sub-concepts with more than one applicable worksheet/Set:
+
+- P5 Ch3 "Expressing fractions as decimals" → WS3, WS4 (+SetB, SetC)
+- P5 Ch7 "Multiplying/dividing decimals by 10, 100, 1000" → WS7 (+SetB)
+- P5 Ch8 "Finding simple rate" / "Finding metre rate" → Rate WS1, Rate WS2
+- P4 Ch2 "Multiples and common multiples" → NumOps WS1, WS2, WS3
+- P4 Ch9 "Place values (tenths/hundredths/thousandths)" → WS2 (+SetB)
+- P4 Ch9 "Comparing and ordering decimals" → WS8, WS9
+- P4 Ch9 "Expressing fraction as decimal" → WS3, WS4 (+SetB, SetC)
+- P4 Ch10 "Adding decimals" → WS1
+- P4 Ch10 "Multiplying decimals by 1-digit" → WS10
+- P4 Ch10 "Dividing decimals by 1-digit" → WS11
+- P3 Ch4 "Multiplying/dividing within multiplication table" → NumOps WS4 (mental division)
+- P3 Ch5 "Dividing 3-digit by 1-digit" (no remainder / remainder) → NumOps WS5, WS6 (+SetB each)
+
+Two types (WS5/WS6 "Reading Number Line in Decimal") don't match any specific sub-concept text anywhere — general decimals practice, no home at the sub-concept level. Decide at build time whether these hang off the chapter level instead or get left out of this feature.
+
+**Two things need solving before this is just UI work:**
+- **Mapping table.** There's no shared taxonomy between the tracker's free-text chapter/sub-concept labels (author's own wording, sheet by sheet) and the worksheet generator's type IDs (`ws7_multiplying_by_powers_of_10_i`, etc). Needs an explicit config mapping `{sheetId, chapter, sub-concept} → [worksheet type IDs]`, maintained by hand like the `STUDENTS` array — matching by string-similarity/keyword would be fragile given how differently the two sources phrase the same topic.
+- **Hosting.** The worksheet PDFs currently live only in the worksheets project's local git repo — no public remote, no deploy (per [[git-hosting-pattern]], never needed one before). The tracker is served from public GitHub Pages. Downloadable-from-the-tracker means the PDFs (or at least the ones actually mapped) need to be reachable from that public site — e.g. copied/synced into the tracker repo's own static assets, or hosted somewhere else public and linked. Worth deciding whether *all* worksheet output ships publicly or just the mapped subset, given the databank also contains internal-use content (answer keys) that arguably shouldn't be public.
+- New worksheet types/Sets get added on an ongoing basis (Cowork sessions, per [[atikah-worksheet-generator-project]]) — the mapping table will go stale unless updating it becomes part of that workflow, or the tracker build regenerates it from some structured source instead of hand-maintained JSON.
+
+Depends on #4 (accordion — this is where the sub-concept-level drill-down lives) and interacts with #1 (login) only if answer keys end up gated to Atikah-only; the worksheets themselves (not answer keys) are presumably fine as public downloads, same visibility as everything else on the page today.
 
 ## Related
 - Full UI/UX audit of the current (pre-these-features) page: see the audit report delivered 2026-07-31 (chat/artifact) for issues to fix independent of this backlog — most notably the progress-bar fill/track contrast and the refresh-flash bug, both worth fixing before adding the increment button on top of the same bar component.

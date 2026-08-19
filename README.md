@@ -40,6 +40,18 @@ GitHub Pages
 6. Deploy (see below). No other code changes needed — chapters/sub-concepts are
    read entirely from each sheet's own rows.
 
+## Chapters, quick-nav, and worksheets
+
+Chapters collapse to a summary card by default — click a chapter header to expand it and see its sub-concept rows. Multiple chapters can be open at once (not exclusive), and the open/closed state survives the 60s auto-refresh (only cleared when switching student). The "Jump to chapter…" dropdown in the top bar scrolls to and expands a chapter directly.
+
+Where a sub-concept (or, for a couple of decimals sub-concepts with no exact match, a whole chapter) has matching practice worksheets from the [worksheet generator project](../worksheets/), they show as small links under that row — clicking one opens the PDF in the browser's own viewer (not a forced download). This is driven by three config objects near the top of `index.html`:
+
+- `WORKSHEET_FILES` — registry of every shipped worksheet type and its Set(s) (paths under `worksheets/`).
+- `WORKSHEET_MAP` — exact `(Chapter, Sub-Concept)` text → worksheet type id(s). Matching is topic-based, not sheet-scoped: the same worksheet applies wherever that exact text appears, across any student/level sheet.
+- `CHAPTER_WORKSHEET_MAP` — chapter-level fallback for worksheets with no exact sub-concept match.
+
+**To add a new worksheet/Set here:** generate it in the worksheet generator project as usual, then run `./sync_worksheets.sh` from this directory to copy the new PDF(s) in (answer keys are deliberately excluded), and add/update an entry in `WORKSHEET_FILES` (and `WORKSHEET_MAP`/`CHAPTER_WORKSHEET_MAP` if it should link from a chapter/sub-concept). The mapping is hand-maintained — there's no shared taxonomy between the tracker sheets' free-text labels and the worksheet generator's type ids, so this needs a human decision each time, not an automated match.
+
 ## Local preview
 
 ```bash

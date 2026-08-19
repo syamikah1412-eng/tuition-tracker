@@ -130,6 +130,61 @@ function pct1(pct) {
   return pct === null ? 'N/A' : (pct * 100).toFixed(1) + '%';
 }
 
+// ── Worksheet mapping (mirrors the registry inlined in ../index.html) ──────
+// Trimmed to just the entries exercised by the tests below — the full
+// registry lives in index.html and is the source of truth.
+
+const WORKSHEET_FILES = {
+  ws3_fraction_to_decimal_i: { title: 'Worksheet 3: Fraction to Decimal I', sets: { A: 'worksheets/decimals/WS3_Fraction_to_Decimal_I.pdf' } },
+  ws4_fraction_to_decimal_ii: { title: 'Worksheet 4: Fraction to Decimal II', sets: { A: 'worksheets/decimals/WS4_Fraction_to_Decimal_II.pdf', B: 'worksheets/decimals/WS4_SetB_Fraction_to_Decimal_II.pdf', C: 'worksheets/decimals/WS4_SetC_Fraction_to_Decimal_II.pdf' } },
+  ws5_reading_number_line: { title: 'Worksheet 5: Reading Number Line (in Decimal)', sets: { A: 'worksheets/decimals/WS5_Reading_Number_Line_in_Decimal.pdf', B: 'worksheets/decimals/WS5_SetB_Reading_Number_Line_in_Decimal.pdf', C: 'worksheets/decimals/WS5_SetC_Reading_Number_Line_in_Decimal.pdf' } },
+  ws6_reading_number_line_ii: { title: 'Worksheet 6: Reading Number Line (in Decimal) II', sets: { A: 'worksheets/decimals/WS6_Reading_Number_Line_in_Decimal_II.pdf', B: 'worksheets/decimals/WS6_SetB_Reading_Number_Line_in_Decimal_II.pdf', C: 'worksheets/decimals/WS6_SetC_Reading_Number_Line_in_Decimal_II.pdf' } },
+  ws8_comparing_decimals: { title: 'Worksheet 8: Comparing Decimals', sets: { A: 'worksheets/decimals/WS8_Comparing_Decimals.pdf' } },
+  ws9_ordering_decimals: { title: 'Worksheet 9: Ordering Decimals', sets: { A: 'worksheets/decimals/WS9_Ordering_Decimals.pdf' } },
+  rate_ws1_finding_and_using_rate: { title: 'Rate Worksheet 1: Finding and Using Rate', sets: { A: 'worksheets/rate/WS1_Finding_and_Using_Rate.pdf' } },
+  rate_ws2_postage_rate_tables: { title: 'Rate Worksheet 2: Postage Rate Tables', sets: { A: 'worksheets/rate/WS2_Postage_Rate_Tables.pdf' } },
+};
+
+const WORKSHEET_MAP = [
+  { chapter: 'Chapter 8: Rate', subConcept: 'Finding simple rate', worksheetIds: ['rate_ws1_finding_and_using_rate', 'rate_ws2_postage_rate_tables'] },
+  { chapter: 'Chapter 9: Decimals', subConcept: 'Comparing and ordering decimals', worksheetIds: ['ws8_comparing_decimals', 'ws9_ordering_decimals'] },
+  { chapter: 'Chapter 9: Decimals', subConcept: 'Expressing fraction as decimal', worksheetIds: ['ws3_fraction_to_decimal_i', 'ws4_fraction_to_decimal_ii'] },
+];
+
+const CHAPTER_WORKSHEET_MAP = [
+  { chapter: 'Chapter 7: Decimals', worksheetIds: ['ws5_reading_number_line', 'ws6_reading_number_line_ii'] },
+];
+
+function expandWorksheetIds(worksheetIds) {
+  const out = [];
+  worksheetIds.forEach(function (id) {
+    const entry = WORKSHEET_FILES[id];
+    if (!entry) return;
+    const setLabels = Object.keys(entry.sets);
+    setLabels.forEach(function (setLabel) {
+      out.push({
+        title: entry.title,
+        setLabel: setLabels.length > 1 ? setLabel : null,
+        path: entry.sets[setLabel],
+      });
+    });
+  });
+  return out;
+}
+
+function findWorksheetsForSubConcept(chapter, subConcept) {
+  const c = String(chapter || '').trim();
+  const s = String(subConcept || '').trim();
+  const match = WORKSHEET_MAP.find(function (m) { return m.chapter === c && m.subConcept === s; });
+  return match ? expandWorksheetIds(match.worksheetIds) : [];
+}
+
+function findWorksheetsForChapter(chapter) {
+  const c = String(chapter || '').trim();
+  const match = CHAPTER_WORKSHEET_MAP.find(function (m) { return m.chapter === c; });
+  return match ? expandWorksheetIds(match.worksheetIds) : [];
+}
+
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 // Captured shape of the real gviz CSV response: merged banner/title rows above
@@ -259,6 +314,24 @@ assert('40.0% complete (all)', pct1(overall.pctAll) === '40.0%');
 assert('60 tested units', overall.testedUnits === 60);
 assert('36 tested units achieved', overall.testedAchieved === 36);
 assert('60.0% complete (assessment)', pct1(overall.pctAssessment) === '60.0%');
+
+console.log('\nfindWorksheetsForSubConcept() / findWorksheetsForChapter() (backlog #6):');
+
+const rateMatch = findWorksheetsForSubConcept('Chapter 8: Rate', 'Finding simple rate');
+assert('sub-concept match: two worksheet types, one set each', rateMatch.length === 2);
+assert('sub-concept match: single-set worksheets get no set label', rateMatch.every(function (w) { return w.setLabel === null; }));
+assert('sub-concept match: paths resolve into the worksheets/ dir', rateMatch[0].path.indexOf('worksheets/rate/') === 0);
+
+const decimalsMatch = findWorksheetsForSubConcept('Chapter 9: Decimals', 'Expressing fraction as decimal');
+assert('sub-concept match: multi-set worksheet expands every set', decimalsMatch.length === 4);
+assert('sub-concept match: multi-set worksheet gets A/B/C labels', decimalsMatch.filter(function (w) { return w.setLabel === 'C'; }).length === 1);
+
+assert('sub-concept no-match returns empty array', findWorksheetsForSubConcept('Chapter 1: Numbers to 10 million', 'Reading and writing numbers in numerals and in words').length === 0);
+assert('sub-concept match trims whitespace', findWorksheetsForSubConcept('  Chapter 8: Rate  ', '  Finding simple rate  ').length === 2);
+
+const chapterMatch = findWorksheetsForChapter('Chapter 7: Decimals');
+assert('chapter-level match: two worksheet types, three sets each', chapterMatch.length === 6);
+assert('chapter-level no-match returns empty array', findWorksheetsForChapter('Chapter 1: Numbers to 10 million').length === 0);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 if (fail > 0) process.exit(1);

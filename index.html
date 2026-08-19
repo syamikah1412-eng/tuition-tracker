@@ -74,21 +74,32 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
 .bar-fill.full{border-radius:6px;}
 .bar-na{font-size:13px;color:var(--muted);padding:2px 0;}
 
-.chapters-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+.chapters-list{display:flex;flex-direction:column;gap:10px;}
 
-.chapter-card .chapter-title{font-size:14px;font-weight:700;color:var(--header-blue-dark);margin-bottom:8px;}
+.chapter-card{padding:0;overflow:hidden;}
+.chapter-header{padding:14px 16px;cursor:pointer;}
+.chapter-header-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.chapter-toggle-icon{font-size:11px;color:var(--muted);width:10px;flex-shrink:0;}
+.chapter-card .chapter-title{font-size:14px;font-weight:700;color:var(--header-blue-dark);}
 .chapter-card .chapter-meta{font-size:12px;color:var(--muted);margin-bottom:10px;}
 .chapter-card .bar-row{margin-bottom:10px;}
 .chapter-card .bar-row-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px;}
+
+.chapter-body{padding:4px 16px 16px;border-top:1px solid var(--border);}
+.chapter-body[hidden]{display:none;}
+.chapter-worksheets{margin-bottom:10px;}
 
 .subconcepts{display:flex;flex-direction:column;gap:8px;}
 .subrow{border:1px solid var(--border);border-radius:8px;padding:10px 12px;
   display:grid;grid-template-columns:1.4fr auto auto;gap:8px 14px;align-items:center;}
 @media (max-width:600px){.subrow{grid-template-columns:1fr;}}
-.subrow-main .subrow-chapter{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
 .subrow-main .subrow-name{font-size:14px;font-weight:600;}
 .subrow-main .subrow-notes{font-size:12px;color:var(--muted);margin-top:4px;}
 .subrow-main .subrow-date{font-size:12px;color:var(--muted);margin-top:2px;}
+.subrow-worksheets{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;}
+.worksheet-link{font-size:12px;color:var(--header-blue-dark);text-decoration:none;
+  background:#E4ECF9;border-radius:6px;padding:3px 8px;white-space:nowrap;}
+.worksheet-link:hover{text-decoration:underline;}
 
 .units{display:flex;gap:4px;}
 .unit-block{width:20px;height:20px;border-radius:4px;background:var(--empty-grey);border:1px solid var(--border);}
@@ -110,6 +121,9 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
     <h1>Tuition Content Tracker</h1>
     <div class="topbar-controls">
       <select id="student-select" class="student-select"></select>
+      <select id="chapter-nav-select" class="student-select">
+        <option value="">Jump to chapter…</option>
+      </select>
       <span id="refreshed" class="refreshed"></span>
       <button id="auth-btn" class="auth-btn" onclick="onAuthBtnClick()">🔒 Atikah login</button>
     </div>
@@ -292,6 +306,94 @@ function esc(str) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function escAttr(str) {
+  return esc(str).replace(/"/g, "&quot;");
+}
+
+// ── Worksheet registry & mapping (backlog #6) ───────────────────────────────
+// Paths are relative to index.html, synced via sync_worksheets.sh from the
+// worksheet generator project (../worksheets/). Answer keys are intentionally
+// excluded — worksheet-only downloads.
+const WORKSHEET_FILES = {
+  ws1_addition_of_decimals: { title: "Worksheet 1: Addition of Decimals", sets: { A: "worksheets/decimals/WS1_Addition_of_Decimals.pdf" } },
+  ws2_place_value_of_decimals: { title: "Worksheet 2: Place Value of Decimals", sets: { A: "worksheets/decimals/WS2_Place_Value_of_Decimals.pdf", B: "worksheets/decimals/WS2_SetB_Place_Value_of_Decimals.pdf" } },
+  ws3_fraction_to_decimal_i: { title: "Worksheet 3: Fraction to Decimal I", sets: { A: "worksheets/decimals/WS3_Fraction_to_Decimal_I.pdf" } },
+  ws4_fraction_to_decimal_ii: { title: "Worksheet 4: Fraction to Decimal II", sets: { A: "worksheets/decimals/WS4_Fraction_to_Decimal_II.pdf", B: "worksheets/decimals/WS4_SetB_Fraction_to_Decimal_II.pdf", C: "worksheets/decimals/WS4_SetC_Fraction_to_Decimal_II.pdf" } },
+  ws5_reading_number_line: { title: "Worksheet 5: Reading Number Line (in Decimal)", sets: { A: "worksheets/decimals/WS5_Reading_Number_Line_in_Decimal.pdf", B: "worksheets/decimals/WS5_SetB_Reading_Number_Line_in_Decimal.pdf", C: "worksheets/decimals/WS5_SetC_Reading_Number_Line_in_Decimal.pdf" } },
+  ws6_reading_number_line_ii: { title: "Worksheet 6: Reading Number Line (in Decimal) II", sets: { A: "worksheets/decimals/WS6_Reading_Number_Line_in_Decimal_II.pdf", B: "worksheets/decimals/WS6_SetB_Reading_Number_Line_in_Decimal_II.pdf", C: "worksheets/decimals/WS6_SetC_Reading_Number_Line_in_Decimal_II.pdf" } },
+  ws7_multiplying_by_powers_of_10_i: { title: "Worksheet 7: Multiplying Decimals (by 10, 100 and 1000) I", sets: { A: "worksheets/decimals/WS7_Multiplying_Decimals_by_10_100_1000_I.pdf", B: "worksheets/decimals/WS7_SetB_Multiplying_Decimals_by_10_100_1000_I.pdf" } },
+  ws8_comparing_decimals: { title: "Worksheet 8: Comparing Decimals", sets: { A: "worksheets/decimals/WS8_Comparing_Decimals.pdf" } },
+  ws9_ordering_decimals: { title: "Worksheet 9: Ordering Decimals", sets: { A: "worksheets/decimals/WS9_Ordering_Decimals.pdf" } },
+  ws10_multiplication_of_decimals: { title: "Worksheet 10: Multiplication of Decimals", sets: { A: "worksheets/decimals/WS10_Multiplication_of_Decimals.pdf" } },
+  ws11_division_of_decimals: { title: "Worksheet 11: Division of Decimals", sets: { A: "worksheets/decimals/WS11_Division_of_Decimals.pdf" } },
+  numops_ws1_multiples_i: { title: "NumOps Worksheet 1: Multiples (2 to 10) I", sets: { A: "worksheets/number_operations/NumOps_WS1_Multiples_2_to_10_I.pdf" } },
+  numops_ws2_multiples_ii: { title: "NumOps Worksheet 2: Multiples (2 to 10) II", sets: { A: "worksheets/number_operations/NumOps_WS2_Multiples_2_to_10_II.pdf" } },
+  numops_ws3_multiples_iii: { title: "NumOps Worksheet 3: Multiples (2 to 10) III", sets: { A: "worksheets/number_operations/NumOps_WS3_Multiples_2_to_10_III.pdf" } },
+  numops_ws4_division_mental: { title: "NumOps Worksheet 4: Division", sets: { A: "worksheets/number_operations/NumOps_WS4_Division.pdf" } },
+  numops_ws5_long_division_i: { title: "NumOps Worksheet 5: Long Division I", sets: { A: "worksheets/number_operations/NumOps_WS5_Long_Division_I.pdf", B: "worksheets/number_operations/NumOps_WS5_SetB_Long_Division_I.pdf" } },
+  numops_ws6_long_division_ii: { title: "NumOps Worksheet 6: Long Division II", sets: { A: "worksheets/number_operations/NumOps_WS6_Long_Division_II.pdf", B: "worksheets/number_operations/NumOps_WS6_SetB_Long_Division_II.pdf" } },
+  rate_ws1_finding_and_using_rate: { title: "Rate Worksheet 1: Finding and Using Rate", sets: { A: "worksheets/rate/WS1_Finding_and_Using_Rate.pdf" } },
+  rate_ws2_postage_rate_tables: { title: "Rate Worksheet 2: Postage Rate Tables", sets: { A: "worksheets/rate/WS2_Postage_Rate_Tables.pdf" } },
+};
+
+// Sub-concept-level matches: exact (Chapter, Sub-Concept) text as it appears in
+// a sheet -> worksheet type ids. Matching is topic-based, not sheet-scoped — the
+// same worksheet applies wherever that exact chapter+sub-concept text appears,
+// regardless of which student/level sheet it's found in.
+const WORKSHEET_MAP = [
+  { chapter: "Chapter 3: Fraction and Division", subConcept: "Expressing fractions as decimals", worksheetIds: ["ws3_fraction_to_decimal_i", "ws4_fraction_to_decimal_ii"] },
+  { chapter: "Chapter 7: Decimals", subConcept: "Multiplying and dividing decimals by 10, 100 and 1000", worksheetIds: ["ws7_multiplying_by_powers_of_10_i"] },
+  { chapter: "Chapter 8: Rate", subConcept: "Finding simple rate", worksheetIds: ["rate_ws1_finding_and_using_rate", "rate_ws2_postage_rate_tables"] },
+  { chapter: "Chapter 8: Rate", subConcept: "Finding metre rate", worksheetIds: ["rate_ws1_finding_and_using_rate", "rate_ws2_postage_rate_tables"] },
+  { chapter: "Chapter 2: Factors and Multiples", subConcept: "Multiples and common multiples", worksheetIds: ["numops_ws1_multiples_i", "numops_ws2_multiples_ii", "numops_ws3_multiples_iii"] },
+  { chapter: "Chapter 9: Decimals", subConcept: "Place values - tenths, hundredths and thousandths", worksheetIds: ["ws2_place_value_of_decimals"] },
+  { chapter: "Chapter 9: Decimals", subConcept: "Comparing and ordering decimals", worksheetIds: ["ws8_comparing_decimals", "ws9_ordering_decimals"] },
+  { chapter: "Chapter 9: Decimals", subConcept: "Expressing fraction as decimal", worksheetIds: ["ws3_fraction_to_decimal_i", "ws4_fraction_to_decimal_ii"] },
+  { chapter: "Chapter 10: Four Operations of Decimals", subConcept: "Adding decimals", worksheetIds: ["ws1_addition_of_decimals"] },
+  { chapter: "Chapter 10: Four Operations of Decimals", subConcept: "Multiplying decimals by 1-digit", worksheetIds: ["ws10_multiplication_of_decimals"] },
+  { chapter: "Chapter 10: Four Operations of Decimals", subConcept: "Dividing decimals by 1-digit", worksheetIds: ["ws11_division_of_decimals"] },
+  { chapter: "Chapter 4: Multiplication of 6, 7, 8, and 9", subConcept: "Multiplying and dividing within multiplication table", worksheetIds: ["numops_ws4_division_mental"] },
+  { chapter: "Chapter 5: Multiplication and Division", subConcept: "Dividing 3-digit by 1-digit with no remainder", worksheetIds: ["numops_ws5_long_division_i"] },
+  { chapter: "Chapter 5: Multiplication and Division", subConcept: "Dividing 3-digit by 1-digit with remainder", worksheetIds: ["numops_ws6_long_division_ii"] },
+];
+
+// Chapter-level matches for worksheets with no exact sub-concept match (general
+// topic practice, e.g. decimal number-line reading).
+const CHAPTER_WORKSHEET_MAP = [
+  { chapter: "Chapter 7: Decimals", worksheetIds: ["ws5_reading_number_line", "ws6_reading_number_line_ii"] },
+  { chapter: "Chapter 9: Decimals", worksheetIds: ["ws5_reading_number_line", "ws6_reading_number_line_ii"] },
+];
+
+function expandWorksheetIds(worksheetIds) {
+  const out = [];
+  worksheetIds.forEach(function (id) {
+    const entry = WORKSHEET_FILES[id];
+    if (!entry) return;
+    const setLabels = Object.keys(entry.sets);
+    setLabels.forEach(function (setLabel) {
+      out.push({
+        title: entry.title,
+        setLabel: setLabels.length > 1 ? setLabel : null,
+        path: entry.sets[setLabel],
+      });
+    });
+  });
+  return out;
+}
+
+function findWorksheetsForSubConcept(chapter, subConcept) {
+  const c = String(chapter || "").trim();
+  const s = String(subConcept || "").trim();
+  const match = WORKSHEET_MAP.find(function (m) { return m.chapter === c && m.subConcept === s; });
+  return match ? expandWorksheetIds(match.worksheetIds) : [];
+}
+
+function findWorksheetsForChapter(chapter) {
+  const c = String(chapter || "").trim();
+  const match = CHAPTER_WORKSHEET_MAP.find(function (m) { return m.chapter === c; });
+  return match ? expandWorksheetIds(match.worksheetIds) : [];
+}
+
 function pctText(pct) {
   return pct === null ? "N/A" : (pct * 100).toFixed(1) + "%";
 }
@@ -318,13 +420,34 @@ function renderOverallSummary(rows) {
   );
 }
 
-function renderChapterCard(summary) {
+function renderWorksheetLinks(list) {
+  if (!list || list.length === 0) return "";
+  const links = list.map(function (w) {
+    const label = esc(w.title) + (w.setLabel ? " — Set " + esc(w.setLabel) : "");
+    return '<a class="worksheet-link" href="' + escAttr(w.path) + '" target="_blank" rel="noopener">' + label + "</a>";
+  }).join("");
+  return '<div class="subrow-worksheets">📄 ' + links + "</div>";
+}
+
+function renderChapterCard(summary, chapterRows) {
+  const isOpen = openChapters.has(summary.chapter);
+  const subRows = chapterRows.map(renderSubConceptRow).join("");
+  const chapterWorksheets = renderWorksheetLinks(findWorksheetsForChapter(summary.chapter));
   return (
-    '<div class="card chapter-card">' +
-      '<div class="chapter-title">' + esc(summary.chapter) + "</div>" +
-      '<div class="chapter-meta">' + summary.subConceptCount + " sub-concept" + (summary.subConceptCount === 1 ? "" : "s") + "</div>" +
-      '<div class="bar-row"><div class="bar-row-label"><span>% Complete (All)</span><span>' + pctText(summary.pctAll) + "</span></div>" + renderBar(summary.pctAll) + "</div>" +
-      '<div class="bar-row"><div class="bar-row-label"><span>% Complete (Assessment)</span><span>' + pctText(summary.pctAssessment) + "</span></div>" + renderBar(summary.pctAssessment) + "</div>" +
+    '<div class="card chapter-card" data-chapter="' + escAttr(summary.chapter) + '">' +
+      '<div class="chapter-header" aria-expanded="' + isOpen + '">' +
+        '<div class="chapter-header-top">' +
+          '<span class="chapter-toggle-icon">' + (isOpen ? "▾" : "▸") + "</span>" +
+          '<span class="chapter-title">' + esc(summary.chapter) + "</span>" +
+        "</div>" +
+        '<div class="chapter-meta">' + summary.subConceptCount + " sub-concept" + (summary.subConceptCount === 1 ? "" : "s") + "</div>" +
+        '<div class="bar-row"><div class="bar-row-label"><span>% Complete (All)</span><span>' + pctText(summary.pctAll) + "</span></div>" + renderBar(summary.pctAll) + "</div>" +
+        '<div class="bar-row"><div class="bar-row-label"><span>% Complete (Assessment)</span><span>' + pctText(summary.pctAssessment) + "</span></div>" + renderBar(summary.pctAssessment) + "</div>" +
+      "</div>" +
+      '<div class="chapter-body"' + (isOpen ? "" : " hidden") + ">" +
+        (chapterWorksheets ? '<div class="chapter-worksheets">' + chapterWorksheets + "</div>" : "") +
+        '<div class="subconcepts">' + subRows + "</div>" +
+      "</div>" +
     "</div>"
   );
 }
@@ -334,13 +457,14 @@ function renderSubConceptRow(row) {
   const tested = isTested(row)
     ? '<span class="tested-badge">TESTED</span>'
     : "";
+  const worksheetLinks = renderWorksheetLinks(findWorksheetsForSubConcept(row["Chapter"], row["Sub-Concept"]));
   return (
     '<div class="subrow">' +
       '<div class="subrow-main">' +
-        '<div class="subrow-chapter">' + esc(row["Chapter"]) + "</div>" +
         '<div class="subrow-name">' + esc(row["Sub-Concept"]) + tested + "</div>" +
         (row["Date Taught"] ? '<div class="subrow-date">Taught: ' + esc(row["Date Taught"]) + "</div>" : "") +
         (row["Notes"] ? '<div class="subrow-notes">' + esc(row["Notes"]) + "</div>" : "") +
+        worksheetLinks +
       "</div>" +
       '<div class="units">' +
         '<div class="unit-block' + (state.unit1Filled ? " filled" : "") + '"></div>' +
@@ -354,13 +478,14 @@ function renderSubConceptRow(row) {
 
 function renderPage(rows) {
   const chapterSummaries = computeChapterSummary(rows);
-  const chapterCards = chapterSummaries.map(renderChapterCard).join("");
-  const subRows = rows.map(renderSubConceptRow).join("");
+  const chapterCards = chapterSummaries.map(function (summary) {
+    const chapterRows = rows.filter(function (r) { return r["Chapter"] === summary.chapter; });
+    return renderChapterCard(summary, chapterRows);
+  }).join("");
 
   return (
     renderOverallSummary(rows) +
-    '<div class="card"><h2>Chapters</h2><div class="chapters-grid">' + chapterCards + "</div></div>" +
-    '<div class="card"><h2>All Sub-Concepts</h2><div class="subconcepts">' + subRows + "</div></div>"
+    '<div class="card"><h2>Chapters</h2><div class="chapters-list">' + chapterCards + "</div></div>"
   );
 }
 
@@ -459,9 +584,64 @@ document.getElementById("auth-pw-input").addEventListener("keydown", function (e
 
 const contentEl = document.getElementById("content");
 const selectEl = document.getElementById("student-select");
+const chapterNavEl = document.getElementById("chapter-nav-select");
 const refreshedEl = document.getElementById("refreshed");
 let currentStudent = null;
 let refreshTimer = null;
+const openChapters = new Set();
+
+// ── Chapter accordion + quick-nav ───────────────────────────────────────────
+
+function findChapterCard(chapterName) {
+  return Array.from(contentEl.querySelectorAll(".chapter-card")).find(function (el) {
+    return el.dataset.chapter === chapterName;
+  });
+}
+
+function applyChapterOpenState(chapterName) {
+  const card = findChapterCard(chapterName);
+  if (!card) return;
+  const isOpen = openChapters.has(chapterName);
+  card.querySelector(".chapter-body").hidden = !isOpen;
+  card.querySelector(".chapter-header").setAttribute("aria-expanded", String(isOpen));
+  card.querySelector(".chapter-toggle-icon").textContent = isOpen ? "▾" : "▸";
+}
+
+function toggleChapter(chapterName) {
+  if (openChapters.has(chapterName)) openChapters.delete(chapterName);
+  else openChapters.add(chapterName);
+  applyChapterOpenState(chapterName);
+}
+
+function openChapterAndScroll(chapterName) {
+  if (!openChapters.has(chapterName)) {
+    openChapters.add(chapterName);
+    applyChapterOpenState(chapterName);
+  }
+  const card = findChapterCard(chapterName);
+  if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function populateChapterNav(chapterSummaries) {
+  chapterNavEl.innerHTML = '<option value="">Jump to chapter…</option>' +
+    chapterSummaries.map(function (s) {
+      return '<option value="' + escAttr(s.chapter) + '">' + esc(s.chapter) + "</option>";
+    }).join("");
+}
+
+contentEl.addEventListener("click", function (e) {
+  const header = e.target.closest(".chapter-header");
+  if (!header) return;
+  const card = header.closest(".chapter-card");
+  if (card) toggleChapter(card.dataset.chapter);
+});
+
+chapterNavEl.addEventListener("change", function (e) {
+  const chapter = e.target.value;
+  if (!chapter) return;
+  openChapterAndScroll(chapter);
+  e.target.value = "";
+});
 
 function populateStudentSelect() {
   selectEl.innerHTML = STUDENTS.map(function (s) {
@@ -475,6 +655,8 @@ function populateStudentSelect() {
 
 async function loadStudent(sheetId) {
   const student = STUDENTS.find(function (s) { return s.sheetId === sheetId; }) || STUDENTS[0];
+  const isStudentSwitch = !currentStudent || currentStudent.sheetId !== student.sheetId;
+  if (isStudentSwitch) openChapters.clear();
   currentStudent = student;
   localStorage.setItem(LAST_STUDENT_KEY, student.sheetId);
   contentEl.innerHTML = renderSkeleton();
@@ -483,6 +665,7 @@ async function loadStudent(sheetId) {
     const rows = await fetchSheetAsCsv(student.sheetId, TAB_NAME);
     const mapped = mapCsvRows(rows);
     contentEl.innerHTML = renderPage(mapped);
+    populateChapterNav(computeChapterSummary(mapped));
     refreshedEl.textContent = "Data refreshed at " + new Date().toLocaleTimeString();
   } catch (err) {
     contentEl.innerHTML = renderError(student.name + ": " + err.message);
