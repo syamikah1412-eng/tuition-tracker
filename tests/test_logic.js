@@ -185,6 +185,10 @@ function findWorksheetsForChapter(chapter) {
   return match ? expandWorksheetIds(match.worksheetIds) : [];
 }
 
+function slugify(str) {
+  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 // Captured shape of the real gviz CSV response: merged banner/title rows above
@@ -332,6 +336,13 @@ assert('sub-concept match trims whitespace', findWorksheetsForSubConcept('  Chap
 const chapterMatch = findWorksheetsForChapter('Chapter 7: Decimals');
 assert('chapter-level match: two worksheet types, three sets each', chapterMatch.length === 6);
 assert('chapter-level no-match returns empty array', findWorksheetsForChapter('Chapter 1: Numbers to 10 million').length === 0);
+
+console.log('\nslugify() — stable ids for aria-controls (P1 accessibility fix):');
+assert('lowercases and hyphenates', slugify('Chapter 8: Rate') === 'chapter-8-rate');
+assert('collapses multiple non-alnum runs into one hyphen', slugify('Chapter  9:  Decimals!!') === 'chapter-9-decimals');
+assert('trims leading/trailing hyphens', slugify('--Chapter 1--') === 'chapter-1');
+assert('empty/undefined input is safe', slugify('') === '' && slugify(undefined) === '');
+assert('two different chapters never collide', slugify('Chapter 1: Numbers to 10 million') !== slugify('Chapter 1: Numbers to 100 000'));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 if (fail > 0) process.exit(1);

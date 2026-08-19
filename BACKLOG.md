@@ -96,6 +96,17 @@ Two types (WS5/WS6 "Reading Number Line in Decimal") don't match any specific su
 
 Depends on #4 (accordion — this is where the sub-concept-level drill-down lives) and interacts with #1 (login) only if answer keys end up gated to Atikah-only; the worksheets themselves (not answer keys) are presumably fine as public downloads, same visibility as everything else on the page today.
 
+## 2026-08-20: audit fixes (P1–P3) — DONE
+A live UI/UX audit of #4/#6 (published as an Artifact report) found 0 blocking defects but 2 High-severity ones: the chapter accordion header was a bare `<div>` with no `tabindex`/`role`/keyboard handler (unreachable and unusable via keyboard or screen reader), and `fetchSheetAsCsv` had no timeout, so a hung Google Sheets request left the page on an infinite loading skeleton with zero feedback (reproduced live, not simulated). Also flagged: the chapter-toggle icon itself — a raw Unicode glyph, 10×13px rendered — too small/low-weight to notice, with no hover feedback on the header at all.
+
+Fixed this session (P1–P3 only; the P0 fetch-timeout/retry fix from the same audit was explicitly deferred, not forgotten):
+- **P1**: `.chapter-header` now has `role="button"`, `tabindex="0"`, `aria-controls` pointing at a stable per-chapter id (`slugify()`), and a delegated `keydown` handler treating Enter/Space like a click. Verified via direct DOM focus + dispatched `KeyboardEvent` — `.focus()` reaches the header, Enter toggles `aria-expanded` and un-hides the body.
+- **P1**: toggle icon replaced with a sized (18px) inline SVG chevron that rotates on open, plus a `:hover`/`:focus-visible` background+outline on the whole header — both the original size complaint and the missing-affordance problem in one fix.
+- **P2**: `<main>` landmark added around the content area; chapter titles changed from `<span>` to `<h3>` for screen-reader heading navigation.
+- **P3**: worksheet-link pills got more touch-friendly padding, the login modal now closes on `Escape`, and `#content` got `aria-live="polite"` so loading/error/success state changes get announced.
+
+122/122 tests pass (5 new `slugify()` assertions). Committed locally, push pending. Full findings + board discussion: audit Artifact linked in this session's chat history.
+
 ## Related
 - Full UI/UX audit of the current (pre-these-features) page: see the audit report delivered 2026-07-31 (chat/artifact) for issues to fix independent of this backlog — most notably the progress-bar fill/track contrast and the refresh-flash bug, both worth fixing before adding the increment button on top of the same bar component.
 - The audit's findings on `.chapters-grid` and the flat sub-concept list (§2/§3 of that report) apply to the *current* layout — revisit them against the new accordion structure from #4 once that's built, since the underlying markup changes.
