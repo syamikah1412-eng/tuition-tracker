@@ -52,19 +52,23 @@ Restructures the page layout: the current two separate sections ("Chapters" summ
   - Does selecting a chapter from the quick-nav dropdown scroll-and-expand, or just scroll?
 - Depends on/interacts with #5 below — once a student can have multiple levels, the quick-nav and the chapter list both need a level dimension, not just a flat chapter list.
 
-## 5. Multi-level workbook support (1–4 levels per student)
+## 5. Multi-level workbook support (1–4 levels per student) — core DONE 2026-10-06
 
-Some students Atikah tutors span **two levels of the syllabus** (e.g. P5 and P6 math), tracked in **one Google Sheets workbook** with **between 1 and 4 tabs**, each tab being one level's own Content Tracker (so a single-level student still has exactly 1 tab — nothing changes for them). This replaces the current one-tab-per-student assumption baked into `STUDENTS`/`TAB_NAME` in `index.html`.
+Shipped for Dani (P5/P4/P3, confirmed real need — she tutors across all 3 levels, previously tracked as 3 separate flat `STUDENTS` entries). Scope capped to a core slice per Hisyam's explicit instruction once the full design ballooned past medium effort — see the carved-out follow-ups below, logged as separate items rather than dropped.
 
-- **Config shape changes** from today's `{ name, sheetId }` (implicitly one fixed `"Content Tracker"` tab) to something like `{ name, sheetId, levels: [{ label, tabName }, ...] }` — one workbook, 1–4 named level-tabs. A "student" is still one entry; a level is no longer assumed to be 1:1 with a student.
-- **Three tiers of aggregation**, up from today's two:
-  1. **Grand overall** — rolled up across every level in the workbook.
-  2. **Overall per level** — one summary per level-tab (e.g. a P5 overall and a separate P6 overall).
-  3. **Per-chapter within each level** — same computation as today, just nested under its level now.
-- For the common case of a student with only 1 level-tab, the grand overall and the level overall are identical — the UI should collapse back to today's single-overall-card behavior rather than showing a pointless duplicate, so single-level students see no change in layout.
-- **Fetching**: one gviz CSV fetch per level-tab, done in parallel — a 4-level workbook does 4 fetches instead of 1 on load. Still small/fast given sheet size, but worth noting as a real change from today's single-fetch model.
-- Interacts directly with #4: the chapter accordion and quick-nav dropdown both need a level dimension once a student can have more than one — e.g. chapters grouped/labeled by level in the dropdown, or a level switcher above the chapter list (parallel to today's student switcher).
-- Tab-naming convention needs to be consistent across a workbook (e.g. exact tab names like `"P5 Content Tracker"` / `"P6 Content Tracker"`) so the `tabName` values in config match exactly — same fragility as the existing single-tab `TAB_NAME` constant, just multiplied by up to 4 per student.
+**What shipped:**
+- **Identity-key refactor**: students are now looked up/selected/persisted by `name`, not `sheetId` — a student can have >1 `sheetId` once multi-level, so `sheetId` could no longer serve as identity (5 call sites in `index.html`: select option value, `localStorage`, `loadStudent()`'s own param, the student-switch check, the two `loadStudent(currentStudent.…)` call sites). A previously-saved `sheetId` in `localStorage` falls back to `STUDENTS[0]` exactly once, then re-saves correctly under the new format — accepted, self-correcting, not worth blocking on.
+- **Schema**: `{ name, sheetId }` (legacy, unchanged, still works with zero migration) or `{ name, levels: [{ label, sheetId, tabName }] }` (new) — `getLevels(student)` normalizes both. Dani's 3 old flat entries consolidated into 1 multi-level entry, reusing her 3 existing spreadsheets' `sheetId`s as-is (no Google Sheets migration needed).
+- **Fetch orchestration**: `Promise.allSettled` across all of a student's levels (not `Promise.all` — needs to know *which* level failed).
+- **Partial-render UX (Option B, confirmed by Hisyam over the simpler all-or-nothing default)**: each level renders independently; a level whose fetch failed shows an inline warning in its own section while sibling levels still render normally. Verified live (forced one level's fetch to reject): the other two levels rendered correctly, the failed one showed `Couldn't load P4: …`, status line read "Partial refresh — see warnings below".
+- **Grand-overall aggregation** (`computeGrandSummary`, new pure function, merges per-level `computeOverallSummary()` objects) + stacked per-level sections (each with its own mini "Overall Progress" card + chapter list) — simpler and smaller-scope than a dedicated level-switcher control. N=1 students (everyone except Dani) collapse to exactly the pre-existing single-card output — verified live, byte-for-byte: same card title ("Overall Progress", not "Grand Overall Progress"), no level heading, no nav optgroups, including the full-page error+retry state on a forced failure (P0 fix from earlier this sprint, unchanged for N=1).
+- **Chapter-open-state + quick-nav key** is now `${levelLabel ?? ""}::${chapterName}` — verified live that Dani's P4 and P3 both have a real "Chapter 12: Area and Perimeter" with different content, and the composite key keeps them from cross-opening or colliding in the nav dropdown (P4/P3 get their own `<optgroup>`).
+- 21 new `tests/test_logic.js` assertions (146/146 total): `getLevels()` legacy-vs-new normalization, `computeGrandSummary()` N=1 collapse + synthetic 3-level merge + failed-level exclusion, `chapterKey()` collision prevention.
+
+**Carved out — follow-ups, not built this sprint:**
+- **Per-level targeted retry.** A failed level's inline warning has no retry button of its own today — it relies on the existing whole-batch retry (manual "Try again" only exists in the N=1 full-page error state) or the 60s auto-refresh picking it up eventually. Worth adding a small per-level retry action if partial failures turn out to be common in practice.
+- **Tab-name-mismatch-specific validation messaging.** A level fetch that returns 0 rows (e.g. a typo'd `tabName`) surfaces today's generic "No data rows found" error, not a level-specific "check the tab name for P4" hint. Not needed for Dani's 3 already-correct tabs; worth adding if a future multi-level student's config needs more hand-holding during setup.
+- **Dedicated level-switcher/toggle UI.** Avoided entirely by the stacked-sections design (every level renders at once, scroll instead of switch) — revisit only if a future student has enough levels (4) that stacking becomes genuinely unwieldy. Not Dani's case at 3.
 
 ## 6. Drill-down to matching worksheets — DONE 2026-08-19
 

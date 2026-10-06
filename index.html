@@ -61,6 +61,10 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
 .card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;}
 .card h2{font-size:15px;font-weight:700;color:var(--header-blue-dark);margin-bottom:10px;}
 
+.level-section{margin-bottom:8px;}
+.level-heading{font-size:17px;font-weight:700;color:var(--header-blue);margin:18px 0 8px;
+  padding-bottom:6px;border-bottom:2px solid var(--header-blue);}
+
 .state-message{padding:24px;text-align:center;color:var(--muted);}
 .state-message.error{color:var(--status-red);}
 .retry-button{display:block;margin:0 auto;min-height:44px;padding:10px 20px;font-size:14px;
@@ -152,11 +156,16 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
 </div>
 
 <script>
-// ── Config: add a new student's { name, sheetId } here ──────────────────────
+// ── Config: add a new single-level student's { name, sheetId } here, or a
+// multi-level student's { name, levels: [{ label, sheetId, tabName }, ...] }.
+// Students are now looked up/selected/persisted by `name`, not `sheetId` —
+// see getLevels() below for how the two shapes normalize to the same thing.
 const STUDENTS = [
-  { name: "Dani P5", sheetId: "1KPBumRLuHjqqvEaUBowK98j2N7N93GylCgmhu73iLtE" },
-  { name: "Dani P4", sheetId: "1EjdhQ9u6R67OcNi6gf74xxDii6NLkkpETwih4i-j6Dg" },
-  { name: "Dani P3", sheetId: "1nGyz5yEMrltdBjW4fFTZWNq0msgPGXx1oNgzPPO6Epw" },
+  { name: "Dani", levels: [
+      { label: "P5", sheetId: "1KPBumRLuHjqqvEaUBowK98j2N7N93GylCgmhu73iLtE", tabName: "Content Tracker" },
+      { label: "P4", sheetId: "1EjdhQ9u6R67OcNi6gf74xxDii6NLkkpETwih4i-j6Dg", tabName: "Content Tracker" },
+      { label: "P3", sheetId: "1nGyz5yEMrltdBjW4fFTZWNq0msgPGXx1oNgzPPO6Epw", tabName: "Content Tracker" },
+  ] },
   { name: "Marsha Sec 1", sheetId: "1IG9KfDBBy2lrP6-ui9dyfZ_B32ZFih2gWjRlXMBJBcY" },
   { name: "Marsha Sec 2", sheetId: "1NG2GLDvP8lCeRttWy1Ik-UUrK6cd_f9NskuXmxVxBWE" },
   { name: "Marsha Sec 3", sheetId: "1ZEtQZw8AgWo7pgrAz1TJEdRkrhGVYvC0WDzXTu5BjzI" },
@@ -300,6 +309,48 @@ function computeOverallSummary(rows) {
   return summarize(rows);
 }
 
+// Merges already-computed per-level summary objects (each from
+// computeOverallSummary()) into one grand total. For a single successful
+// level this collapses to exactly that level's own summary -- the sums and
+// recomputed percentages of a one-element array equal the element itself.
+function computeGrandSummary(perLevelSummaries) {
+  const totals = perLevelSummaries.reduce(function (acc, s) {
+    acc.subConceptCount += s.subConceptCount;
+    acc.totalUnits += s.totalUnits;
+    acc.unitsAchieved += s.unitsAchieved;
+    acc.testedUnits += s.testedUnits;
+    acc.testedAchieved += s.testedAchieved;
+    return acc;
+  }, { subConceptCount: 0, totalUnits: 0, unitsAchieved: 0, testedUnits: 0, testedAchieved: 0 });
+  totals.pctAll = totals.totalUnits === 0 ? 0 : totals.unitsAchieved / totals.totalUnits;
+  totals.pctAssessment = totals.testedUnits === 0 ? null : totals.testedAchieved / totals.testedUnits;
+  return totals;
+}
+
+// Normalizes a STUDENTS entry to its list of levels regardless of shape:
+// legacy { name, sheetId } (implicit single level) or new
+// { name, levels: [{ label, sheetId, tabName }] }. Legacy entries need zero
+// migration -- they just return a single level with label:null and the
+// global TAB_NAME, identical to how the whole app behaved before this.
+function getLevels(student) {
+  if (student.levels && student.levels.length) {
+    return student.levels.map(function (l) {
+      return { label: l.label || null, sheetId: l.sheetId, tabName: l.tabName || TAB_NAME };
+    });
+  }
+  return [{ label: null, sheetId: student.sheetId, tabName: TAB_NAME }];
+}
+
+// Composite chapter-open-state/nav-option key, qualified by level so two
+// levels sharing a chapter name (e.g. the same chapter number recurring
+// across a student's syllabus years) never cross-open or collide in the
+// quick-nav dropdown. For a null levelLabel (every single-level student)
+// this still degrades to one stable, collision-free key -- no visible
+// behavior change, since nothing persists this string across sessions.
+function chapterKey(levelLabel, chapterName) {
+  return (levelLabel == null ? "" : levelLabel) + "::" + chapterName;
+}
+
 async function fetchSheetAsCsv(sheetId, tabName, timeoutMs) {
   timeoutMs = timeoutMs || FETCH_TIMEOUT_MS;
   const url = "https://docs.google.com/spreadsheets/d/" + sheetId +
@@ -431,11 +482,10 @@ function renderBar(pct) {
     '" style="width:' + width + '%"></div></div>';
 }
 
-function renderOverallSummary(rows) {
-  const s = computeOverallSummary(rows);
+function renderSummaryCard(s, title) {
   return (
     '<div class="card">' +
-      "<h2>Overall Progress</h2>" +
+      "<h2>" + esc(title) + "</h2>" +
       '<div class="overall-grid">' +
         '<div><div class="stat-label">% Complete (All) — ' + s.unitsAchieved + " / " + s.totalUnits + ' units</div>' +
           '<div class="stat-value">' + pctText(s.pctAll) + "</div>" + renderBar(s.pctAll) + "</div>" +
@@ -444,6 +494,10 @@ function renderOverallSummary(rows) {
       "</div>" +
     "</div>"
   );
+}
+
+function renderOverallSummary(rows) {
+  return renderSummaryCard(computeOverallSummary(rows), "Overall Progress");
 }
 
 function renderWorksheetLinks(list) {
@@ -460,13 +514,14 @@ function renderToggleIcon(isOpen) {
     '<path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
-function renderChapterCard(summary, chapterRows) {
-  const isOpen = openChapters.has(summary.chapter);
+function renderChapterCard(summary, chapterRows, levelLabel) {
+  const key = chapterKey(levelLabel, summary.chapter);
+  const isOpen = openChapters.has(key);
   const subRows = chapterRows.map(renderSubConceptRow).join("");
   const chapterWorksheets = renderWorksheetLinks(findWorksheetsForChapter(summary.chapter));
-  const bodyId = "chapter-body-" + slugify(summary.chapter);
+  const bodyId = "chapter-body-" + slugify(key);
   return (
-    '<div class="card chapter-card" data-chapter="' + escAttr(summary.chapter) + '">' +
+    '<div class="card chapter-card" data-chapter="' + escAttr(key) + '">' +
       '<div class="chapter-header" role="button" tabindex="0" aria-expanded="' + isOpen + '" aria-controls="' + escAttr(bodyId) + '">' +
         '<div class="chapter-header-top">' +
           renderToggleIcon(isOpen) +
@@ -508,17 +563,44 @@ function renderSubConceptRow(row) {
   );
 }
 
-function renderPage(rows) {
+function renderPage(rows, levelLabel) {
   const chapterSummaries = computeChapterSummary(rows);
   const chapterCards = chapterSummaries.map(function (summary) {
     const chapterRows = rows.filter(function (r) { return r["Chapter"] === summary.chapter; });
-    return renderChapterCard(summary, chapterRows);
+    return renderChapterCard(summary, chapterRows, levelLabel);
   }).join("");
 
   return (
     renderOverallSummary(rows) +
     '<div class="card"><h2>Chapters</h2><div class="chapters-list">' + chapterCards + "</div></div>"
   );
+}
+
+// Multi-level (N>1) rendering: a grand-overall card merging every
+// successfully-loaded level, then each level stacked as its own labelled
+// section -- a failed level shows an inline warning (Option B) while
+// siblings still render normally, rather than failing the whole page.
+function renderLevelSection(result) {
+  const label = result.level.label;
+  const heading = label ? '<h2 class="level-heading">' + esc(label) + "</h2>" : "";
+  if (result.status === "error") {
+    return (
+      '<div class="level-section">' + heading +
+      '<div class="card"><div class="state-message error">Couldn’t load ' +
+        esc(label || "this level") + ": " + esc(result.message) + "</div></div>" +
+      "</div>"
+    );
+  }
+  return '<div class="level-section">' + heading + renderPage(result.rows, label) + "</div>";
+}
+
+function renderMultiLevelPage(levelResults) {
+  const okSummaries = levelResults
+    .filter(function (r) { return r.status === "ok"; })
+    .map(function (r) { return computeOverallSummary(r.rows); });
+  const grandCard = renderSummaryCard(computeGrandSummary(okSummaries), "Grand Overall Progress");
+  const sections = levelResults.map(renderLevelSection).join("");
+  return grandCard + sections;
 }
 
 function renderSkeleton() {
@@ -661,16 +743,33 @@ function openChapterAndScroll(chapterName) {
   if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function populateChapterNav(chapterSummaries) {
+// Accepts the same levelResults array loadStudent() builds. N=1: flat list
+// (unchanged). N>1: a per-level <optgroup>, option value = the composite
+// chapterKey so openChapterAndScroll() finds the right level's card even
+// when two levels share a chapter name.
+function populateChapterNav(levelResults) {
+  if (levelResults.length === 1) {
+    const r = levelResults[0];
+    const summaries = r.status === "ok" ? computeChapterSummary(r.rows) : [];
+    chapterNavEl.innerHTML = '<option value="">Jump to chapter…</option>' +
+      summaries.map(function (s) {
+        return '<option value="' + escAttr(chapterKey(r.level.label, s.chapter)) + '">' + esc(s.chapter) + "</option>";
+      }).join("");
+    return;
+  }
   chapterNavEl.innerHTML = '<option value="">Jump to chapter…</option>' +
-    chapterSummaries.map(function (s) {
-      return '<option value="' + escAttr(s.chapter) + '">' + esc(s.chapter) + "</option>";
+    levelResults.map(function (r) {
+      if (r.status !== "ok") return "";
+      const opts = computeChapterSummary(r.rows).map(function (s) {
+        return '<option value="' + escAttr(chapterKey(r.level.label, s.chapter)) + '">' + esc(s.chapter) + "</option>";
+      }).join("");
+      return '<optgroup label="' + escAttr(r.level.label || "") + '">' + opts + "</optgroup>";
     }).join("");
 }
 
 contentEl.addEventListener("click", function (e) {
   if (e.target.closest(".retry-button")) {
-    if (currentStudent) loadStudent(currentStudent.sheetId);
+    if (currentStudent) loadStudent(currentStudent.name);
     return;
   }
   const header = e.target.closest(".chapter-header");
@@ -697,38 +796,74 @@ chapterNavEl.addEventListener("change", function (e) {
 
 function populateStudentSelect() {
   selectEl.innerHTML = STUDENTS.map(function (s) {
-    return '<option value="' + esc(s.sheetId) + '">' + esc(s.name) + "</option>";
+    return '<option value="' + esc(s.name) + '">' + esc(s.name) + "</option>";
   }).join("");
 
-  const savedSheetId = localStorage.getItem(LAST_STUDENT_KEY);
-  const match = STUDENTS.find(function (s) { return s.sheetId === savedSheetId; });
-  selectEl.value = (match || STUDENTS[0]).sheetId;
+  // A previously-saved sheetId (pre-multi-level format) won't match any
+  // student's name — falls back to STUDENTS[0] once, then re-saves correctly
+  // under the new name-keyed format on the next load. Accepted, one-time,
+  // self-correcting (see tracker/BACKLOG.md).
+  const savedName = localStorage.getItem(LAST_STUDENT_KEY);
+  const match = STUDENTS.find(function (s) { return s.name === savedName; });
+  selectEl.value = (match || STUDENTS[0]).name;
 }
 
-async function loadStudent(sheetId) {
-  const student = STUDENTS.find(function (s) { return s.sheetId === sheetId; }) || STUDENTS[0];
-  const isStudentSwitch = !currentStudent || currentStudent.sheetId !== student.sheetId;
+function errMessage(reason) {
+  return reason && reason.message ? reason.message : String(reason);
+}
+
+async function loadStudent(name) {
+  const student = STUDENTS.find(function (s) { return s.name === name; }) || STUDENTS[0];
+  const isStudentSwitch = !currentStudent || currentStudent.name !== student.name;
   if (isStudentSwitch) openChapters.clear();
   currentStudent = student;
-  localStorage.setItem(LAST_STUDENT_KEY, student.sheetId);
+  localStorage.setItem(LAST_STUDENT_KEY, student.name);
   contentEl.innerHTML = renderSkeleton();
 
-  try {
-    const rows = await fetchSheetAsCsv(student.sheetId, TAB_NAME);
-    const mapped = mapCsvRows(rows);
-    contentEl.innerHTML = renderPage(mapped);
-    populateChapterNav(computeChapterSummary(mapped));
-    refreshedEl.textContent = "Data refreshed at " + new Date().toLocaleTimeString();
-  } catch (err) {
-    contentEl.innerHTML = renderError(student.name + ": " + err.message, true);
-    refreshedEl.textContent = "Last refresh failed at " + new Date().toLocaleTimeString();
+  const levels = getLevels(student);
+  const settled = await Promise.allSettled(levels.map(function (l) {
+    return fetchSheetAsCsv(l.sheetId, l.tabName).then(mapCsvRows);
+  }));
+  const levelResults = levels.map(function (level, i) {
+    return settled[i].status === "fulfilled"
+      ? { level: level, status: "ok", rows: settled[i].value }
+      : { level: level, status: "error", message: errMessage(settled[i].reason) };
+  });
+
+  if (levels.length === 1) {
+    // Single-level student: unchanged from before multi-level support,
+    // including the full-page error + retry state (P0 fix) on failure — a
+    // partial-render wrapper doesn't make sense when there's only one level.
+    const only = levelResults[0];
+    if (only.status === "ok") {
+      contentEl.innerHTML = renderPage(only.rows);
+      refreshedEl.textContent = "Data refreshed at " + new Date().toLocaleTimeString();
+    } else {
+      contentEl.innerHTML = renderError(student.name + ": " + only.message, true);
+      refreshedEl.textContent = "Last refresh failed at " + new Date().toLocaleTimeString();
+    }
+    populateChapterNav(levelResults);
+    return;
   }
+
+  // Multi-level student (Option B): grand-overall + stacked per-level
+  // sections; a level whose fetch failed shows an inline warning while
+  // sibling levels still render normally.
+  contentEl.innerHTML = renderMultiLevelPage(levelResults);
+  populateChapterNav(levelResults);
+  const anyOk = levelResults.some(function (r) { return r.status === "ok"; });
+  const allOk = levelResults.every(function (r) { return r.status === "ok"; });
+  refreshedEl.textContent = allOk
+    ? "Data refreshed at " + new Date().toLocaleTimeString()
+    : anyOk
+      ? "Partial refresh at " + new Date().toLocaleTimeString() + " — see warnings below"
+      : "Last refresh failed at " + new Date().toLocaleTimeString();
 }
 
 function scheduleRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(function () {
-    if (currentStudent) loadStudent(currentStudent.sheetId);
+    if (currentStudent) loadStudent(currentStudent.name);
   }, REFRESH_INTERVAL_MS);
 }
 
@@ -738,7 +873,7 @@ selectEl.addEventListener("change", function () {
 
 document.addEventListener("visibilitychange", function () {
   if (document.visibilityState === "visible" && currentStudent) {
-    loadStudent(currentStudent.sheetId);
+    loadStudent(currentStudent.name);
   }
 });
 

@@ -126,6 +126,37 @@ function computeOverallSummary(rows) {
   return summarize(rows);
 }
 
+// ── Multi-level workbook support (tracker/BACKLOG.md #5, sprint item) ──────
+
+function computeGrandSummary(perLevelSummaries) {
+  const totals = perLevelSummaries.reduce(function (acc, s) {
+    acc.subConceptCount += s.subConceptCount;
+    acc.totalUnits += s.totalUnits;
+    acc.unitsAchieved += s.unitsAchieved;
+    acc.testedUnits += s.testedUnits;
+    acc.testedAchieved += s.testedAchieved;
+    return acc;
+  }, { subConceptCount: 0, totalUnits: 0, unitsAchieved: 0, testedUnits: 0, testedAchieved: 0 });
+  totals.pctAll = totals.totalUnits === 0 ? 0 : totals.unitsAchieved / totals.totalUnits;
+  totals.pctAssessment = totals.testedUnits === 0 ? null : totals.testedAchieved / totals.testedUnits;
+  return totals;
+}
+
+const TEST_TAB_NAME = 'Content Tracker';
+
+function getLevels(student) {
+  if (student.levels && student.levels.length) {
+    return student.levels.map(function (l) {
+      return { label: l.label || null, sheetId: l.sheetId, tabName: l.tabName || TEST_TAB_NAME };
+    });
+  }
+  return [{ label: null, sheetId: student.sheetId, tabName: TEST_TAB_NAME }];
+}
+
+function chapterKey(levelLabel, chapterName) {
+  return (levelLabel == null ? '' : levelLabel) + '::' + chapterName;
+}
+
 function pct1(pct) {
   return pct === null ? 'N/A' : (pct * 100).toFixed(1) + '%';
 }
@@ -343,6 +374,74 @@ assert('collapses multiple non-alnum runs into one hyphen', slugify('Chapter  9:
 assert('trims leading/trailing hyphens', slugify('--Chapter 1--') === 'chapter-1');
 assert('empty/undefined input is safe', slugify('') === '' && slugify(undefined) === '');
 assert('two different chapters never collide', slugify('Chapter 1: Numbers to 10 million') !== slugify('Chapter 1: Numbers to 100 000'));
+
+// ── Multi-level workbook support (tracker/BACKLOG.md #5, sprint item) ──────
+
+console.log('\ngetLevels() — legacy vs. new STUDENTS shape normalization:');
+{
+  const legacy = { name: 'Marsha Sec 1', sheetId: 'SHEET_A' };
+  const legacyLevels = getLevels(legacy);
+  assert('legacy { name, sheetId } normalizes to exactly one level', legacyLevels.length === 1);
+  assert('legacy level has label:null', legacyLevels[0].label === null);
+  assert('legacy level reuses the student-level sheetId', legacyLevels[0].sheetId === 'SHEET_A');
+  assert('legacy level defaults to the global TAB_NAME', legacyLevels[0].tabName === TEST_TAB_NAME);
+
+  const dani = { name: 'Dani', levels: [
+    { label: 'P5', sheetId: 'SHEET_P5', tabName: 'Content Tracker' },
+    { label: 'P4', sheetId: 'SHEET_P4', tabName: 'Content Tracker' },
+    { label: 'P3', sheetId: 'SHEET_P3', tabName: 'Content Tracker' },
+  ] };
+  const daniLevels = getLevels(dani);
+  assert('new-shape student normalizes to all 3 declared levels', daniLevels.length === 3);
+  assert('new-shape levels keep their own sheetId (not a shared one)',
+    daniLevels[0].sheetId === 'SHEET_P5' && daniLevels[1].sheetId === 'SHEET_P4' && daniLevels[2].sheetId === 'SHEET_P3');
+  assert('new-shape levels keep their own label', daniLevels.map(function (l) { return l.label; }).join(',') === 'P5,P4,P3');
+
+  const missingTabName = { name: 'X', levels: [{ label: 'A', sheetId: 'S' }] };
+  assert('a level missing tabName defaults to the global TAB_NAME', getLevels(missingTabName)[0].tabName === TEST_TAB_NAME);
+}
+
+console.log('\ncomputeGrandSummary() — N=1 collapse + synthetic multi-level merge:');
+{
+  const n1Grand = computeGrandSummary([overall]);
+  assert('N=1: grand subConceptCount equals the single level\'s own', n1Grand.subConceptCount === overall.subConceptCount);
+  assert('N=1: grand unitsAchieved equals the single level\'s own', n1Grand.unitsAchieved === overall.unitsAchieved);
+  assert('N=1: grand pctAll equals the single level\'s own (recomputed, not copied, but numerically identical)',
+    Math.abs(n1Grand.pctAll - overall.pctAll) < 1e-9);
+  assert('N=1: grand pctAssessment equals the single level\'s own', n1Grand.pctAssessment === overall.pctAssessment);
+
+  // Synthetic 3-level Dani-shaped fixture: P5/P4/P3, each its own small set of rows.
+  const level = function (achieved, total) {
+    const rows = [];
+    for (let i = 0; i < total; i++) {
+      rows.push({ 'Chapter': 'C', 'Sub-Concept': 's' + i, 'Progress (0-3)': i < achieved ? '3' : '0', 'Tested for Assessment?': '' });
+    }
+    return computeOverallSummary(rows);
+  };
+  const p5 = level(2, 4), p4 = level(3, 5), p3 = level(1, 3);
+  const grand = computeGrandSummary([p5, p4, p3]);
+  assert('multi-level: subConceptCount sums across all 3 levels', grand.subConceptCount === 4 + 5 + 3);
+  assert('multi-level: totalUnits sums across all 3 levels', grand.totalUnits === p5.totalUnits + p4.totalUnits + p3.totalUnits);
+  assert('multi-level: unitsAchieved sums across all 3 levels', grand.unitsAchieved === p5.unitsAchieved + p4.unitsAchieved + p3.unitsAchieved);
+  assert('multi-level: pctAll is the blended ratio, not an average of the 3 percentages',
+    Math.abs(grand.pctAll - grand.unitsAchieved / grand.totalUnits) < 1e-9);
+
+  // A failed level is excluded from the merge entirely (caller filters to
+  // status:'ok' before calling computeGrandSummary — simulated here directly).
+  const partialGrand = computeGrandSummary([p5, p4]); // p3 "failed to load"
+  assert('a failed level excluded from the merge does not contribute its units',
+    partialGrand.totalUnits === p5.totalUnits + p4.totalUnits);
+}
+
+console.log('\nchapterKey() — composite key prevents cross-level collisions:');
+{
+  assert('same level + same chapter → same key', chapterKey('P5', 'Chapter 1') === chapterKey('P5', 'Chapter 1'));
+  assert('different levels, same chapter name → different keys', chapterKey('P5', 'Chapter 1') !== chapterKey('P4', 'Chapter 1'));
+  assert('null levelLabel (single-level student) still produces a stable key',
+    chapterKey(null, 'Chapter 1') === chapterKey(null, 'Chapter 1'));
+  assert('a null levelLabel never collides with a real, non-empty level label',
+    chapterKey(null, 'Chapter 1') !== chapterKey('P5', 'Chapter 1'));
+}
 
 // ── fetchSheetAsCsv() timeout (P0 fix, tracker/BACKLOG.md #1) ──────────────
 
