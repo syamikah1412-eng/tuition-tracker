@@ -107,6 +107,9 @@ Fixed this session (P1–P3 only; the P0 fetch-timeout/retry fix from the same a
 
 122/122 tests pass (5 new `slugify()` assertions). Committed locally, push pending. Full findings + board discussion: audit Artifact linked in this session's chat history.
 
+## 2026-10-06: P0 fetch-timeout/retry fix — DONE
+The deferred P0 from the 2026-08-20 audit above. `fetchSheetAsCsv` now races the fetch against a 10s `AbortController` timeout (`FETCH_TIMEOUT_MS`); a timeout surfaces through the existing `renderError` path with a clear "Request timed out after 10s" message instead of a raw `AbortError`. `renderError` gained an optional "Try again" button (≥44px touch target), wired through a delegated click handler on `#content` to re-call `loadStudent(currentStudent.sheetId)` — closes the "zero feedback" complaint fully rather than waiting on the existing 60s auto-refresh. 125/125 tests pass (3 new: hung-request timeout, clear error message, unaffected fast-path), added via a mocked `global.fetch` against a copy of `fetchSheetAsCsv` in `tests/test_logic.js` — no new test framework needed.
+
 ## Related
 - Full UI/UX audit of the current (pre-these-features) page: see the audit report delivered 2026-07-31 (chat/artifact) for issues to fix independent of this backlog — most notably the progress-bar fill/track contrast and the refresh-flash bug, both worth fixing before adding the increment button on top of the same bar component.
 - The audit's findings on `.chapters-grid` and the flat sub-concept list (§2/§3 of that report) apply to the *current* layout — revisit them against the new accordion structure from #4 once that's built, since the underlying markup changes.

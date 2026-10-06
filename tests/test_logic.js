@@ -344,5 +344,65 @@ assert('trims leading/trailing hyphens', slugify('--Chapter 1--') === 'chapter-1
 assert('empty/undefined input is safe', slugify('') === '' && slugify(undefined) === '');
 assert('two different chapters never collide', slugify('Chapter 1: Numbers to 10 million') !== slugify('Chapter 1: Numbers to 100 000'));
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
-if (fail > 0) process.exit(1);
+// ── fetchSheetAsCsv() timeout (P0 fix, tracker/BACKLOG.md #1) ──────────────
+
+const FETCH_TIMEOUT_MS = 10000;
+
+async function fetchSheetAsCsv(sheetId, tabName, timeoutMs) {
+  timeoutMs = timeoutMs || FETCH_TIMEOUT_MS;
+  const url = "https://docs.google.com/spreadsheets/d/" + sheetId +
+    "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(tabName);
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error("Sheet fetch failed (HTTP " + res.status + ")");
+    const text = await res.text();
+    return parseCsv(text);
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Request timed out after " + Math.round(timeoutMs / 1000) + "s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runAsyncTests() {
+  console.log('\nfetchSheetAsCsv() — timeout (P0 fix):');
+
+  const realFetch = globalThis.fetch;
+
+  // A hung request: never resolves/rejects on its own, only reacts to the abort signal.
+  globalThis.fetch = function (url, opts) {
+    return new Promise(function (resolve, reject) {
+      opts.signal.addEventListener('abort', function () {
+        const err = new Error('The operation was aborted.');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    });
+  };
+  try {
+    await fetchSheetAsCsv('fake-sheet-id', 'Content Tracker', 30);
+    assert('hung request times out and rejects (used a 30ms test timeout, not the real 10s)', false);
+  } catch (err) {
+    assert('hung request times out and rejects (used a 30ms test timeout, not the real 10s)', true);
+    assert('timeout error message is clear, not a raw AbortError', err.message === 'Request timed out after 0s');
+  }
+
+  // A successful response still resolves normally with the timeout wiring in place.
+  globalThis.fetch = function () {
+    return Promise.resolve({ ok: true, text: function () { return Promise.resolve('Header\nA,1\n'); } });
+  };
+  const rows = await fetchSheetAsCsv('fake-sheet-id', 'Content Tracker', 30);
+  assert('a fast-resolving fetch still returns parsed rows unaffected by the timeout', rows.length === 2);
+
+  globalThis.fetch = realFetch;
+}
+
+runAsyncTests().then(function () {
+  console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
+  if (fail > 0) process.exit(1);
+});

@@ -63,6 +63,9 @@ body{padding-bottom:calc(24px + var(--safe-bottom));}
 
 .state-message{padding:24px;text-align:center;color:var(--muted);}
 .state-message.error{color:var(--status-red);}
+.retry-button{display:block;margin:0 auto;min-height:44px;padding:10px 20px;font-size:14px;
+  border-radius:6px;border:none;cursor:pointer;font-family:var(--font);
+  background:var(--header-blue);color:#fff;}
 
 .overall-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media (max-width:600px){.overall-grid{grid-template-columns:1fr;}}
@@ -162,6 +165,7 @@ const STUDENTS = [
 
 const TAB_NAME = "Content Tracker";
 const REFRESH_INTERVAL_MS = 60000;
+const FETCH_TIMEOUT_MS = 10000;
 const LAST_STUDENT_KEY = "tracker.lastStudentSheetId";
 
 // ── Auth config: set APPS_SCRIPT_URL after deploying apps-script.gs ─────────
@@ -296,13 +300,25 @@ function computeOverallSummary(rows) {
   return summarize(rows);
 }
 
-async function fetchSheetAsCsv(sheetId, tabName) {
+async function fetchSheetAsCsv(sheetId, tabName, timeoutMs) {
+  timeoutMs = timeoutMs || FETCH_TIMEOUT_MS;
   const url = "https://docs.google.com/spreadsheets/d/" + sheetId +
     "/gviz/tq?tqx=out:csv&sheet=" + encodeURIComponent(tabName);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Sheet fetch failed (HTTP " + res.status + ")");
-  const text = await res.text();
-  return parseCsv(text);
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error("Sheet fetch failed (HTTP " + res.status + ")");
+    const text = await res.text();
+    return parseCsv(text);
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Request timed out after " + Math.round(timeoutMs / 1000) + "s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -511,8 +527,9 @@ function renderSkeleton() {
   );
 }
 
-function renderError(message) {
-  return '<div class="state-message error">Couldn’t load this student’s tracker: ' + esc(message) + "</div>";
+function renderError(message, showRetry) {
+  return '<div class="state-message error">Couldn’t load this student’s tracker: ' + esc(message) + "</div>" +
+    (showRetry ? '<button type="button" class="retry-button">Try again</button>' : "");
 }
 
 // ── Auth (password gates write features only — viewing stays public) ───────
@@ -652,6 +669,10 @@ function populateChapterNav(chapterSummaries) {
 }
 
 contentEl.addEventListener("click", function (e) {
+  if (e.target.closest(".retry-button")) {
+    if (currentStudent) loadStudent(currentStudent.sheetId);
+    return;
+  }
   const header = e.target.closest(".chapter-header");
   if (!header) return;
   const card = header.closest(".chapter-card");
@@ -699,7 +720,7 @@ async function loadStudent(sheetId) {
     populateChapterNav(computeChapterSummary(mapped));
     refreshedEl.textContent = "Data refreshed at " + new Date().toLocaleTimeString();
   } catch (err) {
-    contentEl.innerHTML = renderError(student.name + ": " + err.message);
+    contentEl.innerHTML = renderError(student.name + ": " + err.message, true);
     refreshedEl.textContent = "Last refresh failed at " + new Date().toLocaleTimeString();
   }
 }
