@@ -21,7 +21,9 @@ Currently the page is fully public/read-only with no auth of any kind. Needed as
 - Only Atikah needs to authenticate to get write access; viewing stays public/no-login, same as today.
 - Whatever backend ends up handling #2 (see below) should also own the password check — the static page has no server of its own to check a password against.
 
-## 2. One-tap progress increment with timestamp logging
+## 2. One-tap progress increment with timestamp logging — ON HOLD (confirmed 2026-10-30)
+
+**Status: on hold, per the 2026-08-19 board review, reconfirmed by Hisyam during the 2026-10-30 sprint-planning session.** This is the single biggest remaining investment on this backlog (needs a real write-path backend). Hold trigger to revisit: real evidence Atikah has opened the live page unprompted / stopped dual-entering progress in the underlying Google Sheet — not met as of 2026-10-30. Don't pick this up without that evidence or an explicit re-prioritisation from Hisyam.
 
 Button **at the sub-concept level** (inside the expanded chapter view — see #4) that Atikah taps to bump that sub-concept's progress up by one step (0 → 1 → 2 → 3), each tap recording the date it happened.
 
